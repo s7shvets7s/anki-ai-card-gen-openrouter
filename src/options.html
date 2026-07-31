@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Anki AI Card Gen Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <p class="eyebrow">Browser extension</p>
+          <h1>Anki AI Card Gen</h1>
+        </div>
+        <button id="saveButton" type="button">Сохранить</button>
+      </header>
+
+      <section>
+        <h2>LLM API</h2>
+        <div class="grid two">
+          <label>
+            Профиль ключа
+            <select id="profileSelect"></select>
+          </label>
+          <label>
+            Название профиля
+            <input id="profileName" type="text" autocomplete="off">
+          </label>
+        </div>
+        <div class="grid two">
+          <label>
+            Base URL
+            <input id="baseUrl" type="url" spellcheck="false">
+          </label>
+          <label>
+            Model
+            <input id="model" type="text" spellcheck="false">
+          </label>
+        </div>
+        <label>
+          API key
+          <input id="apiKey" type="password" spellcheck="false" autocomplete="off">
+        </label>
+        <div class="grid two">
+          <label>
+            Таймаут LLM, сек.
+            <input id="llmTimeoutSeconds" type="number" min="3" max="180" step="1">
+          </label>
+          <label>
+            Таймаут AnkiConnect, сек.
+            <input id="ankiTimeoutSeconds" type="number" min="3" max="60" step="1">
+          </label>
+        </div>
+        <div class="row">
+          <button id="testLlmButton" type="button" class="secondary">Проверить LLM ключ</button>
+          <button id="newProfileButton" type="button" class="secondary">Новый профиль</button>
+          <button id="deleteProfileButton" type="button" class="secondary danger">Удалить профиль</button>
+        </div>
+      </section>
+
+      <section>
+        <h2>Anki</h2>
+        <div class="grid two">
+          <label>
+            Deck
+            <input id="deckName" type="text" autocomplete="off">
+          </label>
+          <label>
+            Note type
+            <input id="noteType" type="text" autocomplete="off">
+          </label>
+        </div>
+        <div class="grid two">
+          <label>
+            Front field
+            <input id="frontField" type="text" autocomplete="off">
+          </label>
+          <label>
+            Back field
+            <input id="backField" type="text" autocomplete="off">
+          </label>
+        </div>
+        <label>
+          Tags
+          <input id="defaultTags" type="text" autocomplete="off">
+        </label>
+        <button id="testAnkiButton" type="button" class="secondary">Проверить Anki настройки</button>
+      </section>
+
+      <section>
+        <h2>Поведение</h2>
+        <div class="checks">
+          <label>
+            <input id="autoCreateOnSelection" type="checkbox">
+            Автоматически создавать карточку после выделения слова
+          </label>
+          <label>
+            <input id="showFloatingButton" type="checkbox">
+            Показывать кнопку рядом с выделением
+          </label>
+        </div>
+        <label>
+          Target language
+          <input id="language" type="text" placeholder="auto, English, German..." autocomplete="off">
+        </label>
+      </section>
+
+      <section>
+        <h2>Prompt</h2>
+        <p class="hint">Можно использовать переменные {{word}}, {{context}} и {{language}}.</p>
+        <textarea id="promptTemplate" spellcheck="false"></textarea>
+      </section>
+
+      <p id="status" role="status"></p>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>

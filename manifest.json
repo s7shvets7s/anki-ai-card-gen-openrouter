@@ -1,0 +1,46 @@
+{
+  "manifest_version": 3,
+  "name": "Anki AI Card Gen",
+  "short_name": "Anki AI",
+  "description": "Generate Anki cards from selected words in Chrome or Microsoft Edge with an LLM and AnkiConnect.",
+  "version": "0.1.0",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "contextMenus",
+    "storage",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "https://openrouter.ai/*",
+    "https://api.openai.com/*",
+    "http://127.0.0.1:8765/*",
+    "http://localhost:8765/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "src/content-script.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "options_page": "src/options.html",
+  "action": {
+    "default_popup": "src/popup.html",
+    "default_title": "Anki AI Card Gen"
+  },
+  "commands": {
+    "create-card-from-selection": {
+      "suggested_key": {
+        "default": "Alt+Shift+A"
+      },
+      "description": "Create an Anki card from the current selection"
+    }
+  }
+}
