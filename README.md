@@ -1,6 +1,6 @@
 # Anki AI Card Gen
 
-Browser extension for Google Chrome and Microsoft Edge. Select a word or short phrase on any page, send it to an LLM, generate a flashcard, and add it to Anki through AnkiConnect.
+Browser extension for Google Chrome and Microsoft Edge. Select exactly one word on any page, send that word plus surrounding context to an LLM, generate a flashcard, and add it to Anki through AnkiConnect.
 
 ## Features
 
@@ -8,7 +8,10 @@ Browser extension for Google Chrome and Microsoft Edge. Select a word or short p
 - Floating `+ Anki` button near the selection.
 - Selection context menu.
 - Popup button for explicit debug-friendly creation from the current selection.
-- Keyboard shortcut: `Alt+Shift+A`.
+- Browser fallback shortcut: `Alt+Shift+A`.
+- In-extension custom keyboard shortcut binding for pages where content scripts run. Default: `Ctrl+Shift+Y`.
+- Context capture by word window or sentence punctuation.
+- Two card modes: Builder with checkboxes, or Pro with prompt/JSON control.
 - Multiple LLM API key profiles.
 - Configurable `Base URL`, model, and prompt.
 - Configurable Anki deck, note type, `Front` and `Back` fields, and tags.
@@ -57,9 +60,16 @@ Use Check LLM key in the options page after editing a profile. The test sends a 
 
 ## Prompt
 
+The card settings have two modes:
+
+- Builder: choose which JSON blocks appear on the Anki front and back with checkboxes.
+- Pro: edit the prompt and expected JSON behavior directly.
+
+In both modes the LLM returns the same normalized JSON shape; the mode controls how the Anki card is rendered.
+
 The prompt supports these variables:
 
-- `{{word}}` - selected word or phrase.
+- `{{word}}` - exactly one selected word.
 - `{{context}}` - short text fragment around the selection.
 - `{{language}}` - target language from the options page.
 
@@ -68,6 +78,19 @@ The LLM should return strict JSON. If you edit the prompt, keep the default resp
 ## Anki
 
 The default setup targets Anki note type `Basic` with fields `Front` and `Back`. For custom Anki note templates, enter the exact field names in the extension options.
+
+When Include context is enabled, the selected page context is added to the back of the card and the selected term is highlighted.
+
+## Selection Context
+
+The options page has two context capture modes:
+
+- Words around selection: capture a configurable number of words on the left and right.
+- Sentence punctuation: capture text until nearby sentence-ending punctuation.
+
+The context is also sent to the LLM through `{{context}}`, so custom prompts can use the real surrounding sentence.
+
+Only the selected single word is used as the card term. If the user selects a sentence or a multi-word phrase, the extension rejects it instead of creating a sentence card.
 
 Use Check Anki settings before generating cards. The extension validates that:
 
@@ -81,6 +104,8 @@ The extension checks Anki before calling the LLM, so a broken Anki setup will no
 ## Edge Notes
 
 Microsoft Edge supports this extension through the Chromium extension APIs used in `manifest.json`. If the keyboard shortcut does not trigger, open `edge://extensions/shortcuts` and assign the shortcut manually.
+
+The custom shortcut in the extension options works on ordinary web pages after the page has been reloaded. Browser-internal pages such as `edge://extensions` and `chrome://extensions` do not allow content scripts.
 
 ## Debug Checklist
 

@@ -1,4 +1,4 @@
-const DEFAULT_PROMPT = `Create an Anki card for the selected term.
+const DEFAULT_PROMPT = `Create an Anki card for exactly one selected word.
 
 Term: {{word}}
 Context: {{context}}
@@ -18,6 +18,8 @@ Return strict JSON only with this shape:
   "tags": ["language", "topic"]
 }`;
 
+const MAX_WORD_LENGTH = 80;
+
 const DEFAULT_SETTINGS = {
   activeProfileId: "openrouter-default",
   deckName: "Default",
@@ -30,7 +32,14 @@ const DEFAULT_SETTINGS = {
   showFloatingButton: true,
   promptTemplate: DEFAULT_PROMPT,
   llmTimeoutSeconds: 45,
-  ankiTimeoutSeconds: 8
+  ankiTimeoutSeconds: 8,
+  customShortcut: "Ctrl+Shift+Y",
+  contextCaptureMode: "words",
+  contextWordsEachSide: 8,
+  includeContextInCard: true,
+  cardLayoutMode: "builder",
+  frontTemplateFields: ["term", "reading"],
+  backTemplateFields: ["translation", "definition", "examples", "context", "mnemonic", "source"]
 };
 
 const DEFAULT_PROFILE = {
@@ -54,13 +63,11 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== "create-anki-card" || !info.selectionText) return;
-  processSelection({
-    word: info.selectionText,
-    context: "",
-    sourceUrl: tab?.url || ""
-  })
-    .then((result) => notifyTab(tab?.id, { type: "anki-card-result", result }))
-    .catch((error) => notifyTab(tab?.id, { type: "anki-card-error", error: toUserMessage(error) }));
+  processSelectionFromTab({
+    tab,
+    fallbackWord: info.selectionText,
+    fallbackContext: ""
+  });
 });
 
 chrome.commands.onCommand.addListener(async (command) => {
@@ -73,14 +80,15 @@ chrome.commands.onCommand.addListener(async (command) => {
       return;
     }
     if (!response?.word) {
-      notifyTab(tab.id, { type: "anki-card-error", error: "No text selected." });
+      notifyTab(tab.id, { type: "anki-card-error", error: "Select exactly one word. Sentences and multi-word phrases are captured only as context." });
       return;
     }
     try {
       const result = await processSelection({
         word: response.word,
         context: response.context || "",
-        sourceUrl: tab.url || ""
+        sourceUrl: tab.url || "",
+        tabId: tab.id
       });
       notifyTab(tab.id, { type: "anki-card-result", result });
     } catch (error) {
@@ -94,7 +102,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     processSelection({
       word: message.word,
       context: message.context || "",
-      sourceUrl: sender.tab?.url || ""
+      sourceUrl: sender.tab?.url || "",
+      tabId: sender.tab?.id
     })
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: toUserMessage(error) }));
@@ -103,7 +112,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   if (message?.type === "test-llm-profile") {
     const timeoutMs = secondsToMs(message.timeoutSeconds, DEFAULT_SETTINGS.llmTimeoutSeconds);
-    testLlmProfile(message.profile, timeoutMs)
+    testLlmProfile(message.profile, { ...DEFAULT_SETTINGS, ...message.settings }, timeoutMs)
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: toUserMessage(error) }));
     return true;
@@ -153,7 +162,8 @@ async function getConfig() {
 
 async function processSelection(input) {
   const word = normalizeSelection(input.word);
-  if (!word) throw new Error("Select a word or short phrase first.");
+  const context = normalizeContext(input.context);
+  if (!word) throw new Error("Select exactly one word first. Sentences and multi-word phrases are used only as context.");
 
   const { settings, profile } = await getConfig();
   validateProfileShape(profile);
@@ -161,52 +171,58 @@ async function processSelection(input) {
   const llmTimeoutMs = secondsToMs(settings.llmTimeoutSeconds, DEFAULT_SETTINGS.llmTimeoutSeconds);
   const ankiTimeoutMs = secondsToMs(settings.ankiTimeoutSeconds, DEFAULT_SETTINGS.ankiTimeoutSeconds);
 
+  reportProgress(input.tabId, "Checking Anki settings...");
   await validateAnkiTarget(settings, ankiTimeoutMs);
-  const card = await generateCard({ word, context: input.context || "", settings, profile, timeoutMs: llmTimeoutMs });
-  const noteId = await addCardToAnki({ card, settings, sourceUrl: input.sourceUrl || "", timeoutMs: ankiTimeoutMs });
+  reportProgress(input.tabId, "Sending request to LLM...");
+  const card = await generateCard({ word, context, settings, profile, timeoutMs: llmTimeoutMs });
+  reportProgress(input.tabId, "Adding generated card to Anki...");
+  const noteId = await addCardToAnki({ card, context, settings, sourceUrl: input.sourceUrl || "", timeoutMs: ankiTimeoutMs });
   return { noteId, card };
 }
 
 function normalizeSelection(value) {
+  const normalized = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "");
+  if (!isSingleWord(normalized)) return "";
+  return normalized.slice(0, MAX_WORD_LENGTH);
+}
+
+function isSingleWord(value) {
+  if (!value || value.length > MAX_WORD_LENGTH) return false;
+  if (/\s/u.test(value)) return false;
+  return /[\p{L}\p{N}]/u.test(value);
+}
+
+function normalizeContext(value) {
   return String(value || "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 160);
+    .slice(0, 1200);
 }
 
-async function testLlmProfile(profileInput, timeoutMs) {
+async function testLlmProfile(profileInput, settingsInput, timeoutMs) {
   const profile = { ...DEFAULT_PROFILE, ...profileInput };
+  const settings = { ...DEFAULT_SETTINGS, ...settingsInput };
   validateProfileShape(profile);
   const startedAt = Date.now();
-  const response = await fetchWithTimeout(resolveChatEndpoint(profile.baseUrl), {
-    method: "POST",
-    headers: buildLlmHeaders(profile),
-    body: JSON.stringify({
-      model: profile.model,
-      messages: [
-        {
-          role: "user",
-          content: "Reply with exactly: OK"
-        }
-      ],
-      temperature: 0,
-      max_tokens: 8
-    })
-  }, timeoutMs, "LLM API test");
-
-  await assertLlmResponseOk(response);
-  const json = await response.json();
-  const content = String(json?.choices?.[0]?.message?.content || "").trim();
-  if (!content) throw new Error("LLM key looks accepted, but the model returned an empty message.");
+  const card = await generateCard({
+    word: "example",
+    context: "This is an example sentence for testing.",
+    settings,
+    profile,
+    timeoutMs
+  });
   return {
     model: profile.model,
     elapsedMs: Date.now() - startedAt,
-    sample: content.slice(0, 80)
+    sample: `${card.term}: ${card.translation || card.definition}`.slice(0, 120)
   };
 }
 
 async function generateCard({ word, context, settings, profile, timeoutMs }) {
-  const prompt = fillTemplate(settings.promptTemplate || DEFAULT_PROMPT, {
+  const prompt = fillTemplate(resolvePromptTemplate(settings), {
     word,
     context,
     language: settings.language || "auto"
@@ -215,28 +231,32 @@ async function generateCard({ word, context, settings, profile, timeoutMs }) {
   const requestBody = {
     model: profile.model,
     messages: [
-      {
-        role: "system",
-        content: "You create concise language-learning flashcards. Return valid JSON and no markdown."
-      },
-      { role: "user", content: prompt }
+      { role: "user", content: buildCardGenerationInstruction(prompt) }
     ],
-    temperature: 0.25
+    temperature: 0.1,
+    max_tokens: 450
   };
+  if (isOpenRouterProfile(profile)) {
+    requestBody.reasoning = {
+      effort: "none",
+      exclude: true
+    };
+  }
 
   let response = await fetchWithTimeout(resolveChatEndpoint(profile.baseUrl), {
     method: "POST",
     headers: buildLlmHeaders(profile),
-    body: JSON.stringify({ ...requestBody, response_format: { type: "json_object" } })
+    body: JSON.stringify(requestBody)
   }, timeoutMs, "LLM card generation");
 
-  if (response.status === 400) {
+  if (response.status === 400 && requestBody.reasoning) {
     const details = await response.clone().text();
-    if (/response_format|json_object/i.test(details)) {
+    if (/reasoning|effort/i.test(details)) {
+      const { reasoning, ...bodyWithoutReasoning } = requestBody;
       response = await fetchWithTimeout(resolveChatEndpoint(profile.baseUrl), {
         method: "POST",
         headers: buildLlmHeaders(profile),
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify(bodyWithoutReasoning)
       }, timeoutMs, "LLM card generation");
     }
   }
@@ -249,13 +269,38 @@ async function generateCard({ word, context, settings, profile, timeoutMs }) {
   return normalizeCard(parseJsonObject(content), word);
 }
 
+function resolvePromptTemplate(settings) {
+  return settings.promptTemplate || DEFAULT_PROMPT;
+}
+
+function buildCardGenerationInstruction(prompt) {
+  return [
+    "You create concise language-learning flashcards.",
+    "Return only a valid JSON object. Do not use markdown, comments, or code fences.",
+    "Keep every text field short.",
+    "",
+    prompt
+  ].join("\n");
+}
+
 function buildLlmHeaders(profile) {
-  return {
+  const headers = {
     "Content-Type": "application/json",
-    "Authorization": `Bearer ${profile.apiKey}`,
-    "HTTP-Referer": "https://github.com/local/anki-ai-card-gen-openrouter",
-    "X-Title": "Anki AI Card Gen"
+    "Authorization": `Bearer ${profile.apiKey}`
   };
+  if (isOpenRouterProfile(profile)) {
+    headers["HTTP-Referer"] = "https://github.com/local/anki-ai-card-gen-openrouter";
+    headers["X-Title"] = "Anki AI Card Gen";
+  }
+  return headers;
+}
+
+function isOpenRouterProfile(profile) {
+  try {
+    return new URL(resolveChatEndpoint(profile.baseUrl)).hostname.endsWith("openrouter.ai");
+  } catch {
+    return false;
+  }
 }
 
 async function assertLlmResponseOk(response) {
@@ -300,19 +345,50 @@ function fillTemplate(template, values) {
 
 function parseJsonObject(content) {
   const withoutFence = String(content)
-    .replace(/^```(?:json)?/i, "")
-    .replace(/```$/i, "")
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
     .trim();
   try {
     return JSON.parse(withoutFence);
   } catch {
-    const start = withoutFence.indexOf("{");
-    const end = withoutFence.lastIndexOf("}");
-    if (start >= 0 && end > start) {
-      return JSON.parse(withoutFence.slice(start, end + 1));
+    const jsonCandidate = extractJsonObject(withoutFence);
+    if (jsonCandidate) {
+      return JSON.parse(jsonCandidate);
     }
     throw new Error("The LLM returned invalid JSON. Adjust the prompt so it returns only the requested JSON object.");
   }
+}
+
+function extractJsonObject(value) {
+  const text = String(value || "");
+  const start = text.indexOf("{");
+  if (start < 0) return "";
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < text.length; i += 1) {
+    const char = text[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (char === "\"") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (char === "{") depth += 1;
+    if (char === "}") {
+      depth -= 1;
+      if (depth === 0) return text.slice(start, i + 1);
+    }
+  }
+  return "";
 }
 
 function normalizeCard(card, fallbackTerm) {
@@ -362,14 +438,14 @@ async function validateAnkiTarget(settings, timeoutMs) {
   };
 }
 
-async function addCardToAnki({ card, settings, sourceUrl, timeoutMs }) {
+async function addCardToAnki({ card, context, settings, sourceUrl, timeoutMs }) {
   const defaultTags = String(settings.defaultTags || "")
     .split(/\s+/)
     .map(sanitizeTag)
     .filter(Boolean);
   const fields = {
-    [settings.frontField || "Front"]: buildFront(card),
-    [settings.backField || "Back"]: buildBack(card, sourceUrl)
+    [settings.frontField || "Front"]: buildFront(card, context, sourceUrl, settings),
+    [settings.backField || "Back"]: buildBack(card, context, sourceUrl, settings)
   };
 
   return callAnki("addNote", {
@@ -386,16 +462,31 @@ async function addCardToAnki({ card, settings, sourceUrl, timeoutMs }) {
   }, timeoutMs);
 }
 
-function buildFront(card) {
+function buildFront(card, context, sourceUrl, settings) {
+  if (settings.cardLayoutMode === "builder") {
+    return buildCardSide(card, context, sourceUrl, settings.frontTemplateFields, ["term"]);
+  }
+  return buildProFront(card);
+}
+
+function buildBack(card, context, sourceUrl, settings) {
+  if (settings.cardLayoutMode === "builder") {
+    return buildCardSide(card, context, sourceUrl, settings.backTemplateFields, ["translation", "definition"]);
+  }
+  return buildProBack(card, sourceUrl, settings.includeContextInCard ? context : "");
+}
+
+function buildProFront(card) {
   const reading = card.reading ? `<div class="reading">${escapeHtml(card.reading)}</div>` : "";
   return `<div class="term">${escapeHtml(card.term)}</div>${reading}`;
 }
 
-function buildBack(card, sourceUrl) {
+function buildProBack(card, sourceUrl, context) {
   const rows = [
-    card.translation && `<p><b>Meaning:</b> ${escapeHtml(card.translation)}</p>`,
+    card.translation && `<p><b>Translation:</b> ${escapeHtml(card.translation)}</p>`,
     card.partOfSpeech && `<p><b>Part of speech:</b> ${escapeHtml(card.partOfSpeech)}</p>`,
-    card.definition && `<p>${escapeHtml(card.definition)}</p>`,
+    card.definition && `<p><b>Definition:</b> ${escapeHtml(card.definition)}</p>`,
+    context && `<p><b>Context:</b><br><span class="context">${highlightTerm(context, card.term)}</span></p>`,
     card.examples.length && `<ul>${card.examples.map((example) => (
       `<li>${escapeHtml(example.sentence)}${example.translation ? `<br><small>${escapeHtml(example.translation)}</small>` : ""}</li>`
     )).join("")}</ul>`,
@@ -403,6 +494,71 @@ function buildBack(card, sourceUrl) {
     sourceUrl && `<p><small>Source: ${escapeHtml(sourceUrl)}</small></p>`
   ].filter(Boolean);
   return rows.join("");
+}
+
+function buildCardSide(card, context, sourceUrl, configuredFields, fallbackFields) {
+  const fieldIds = Array.isArray(configuredFields) && configuredFields.length ? configuredFields : fallbackFields;
+  const rows = fieldIds
+    .map((fieldId) => renderCardBlock(fieldId, card, context, sourceUrl))
+    .filter(Boolean);
+  if (rows.length) return rows.join("");
+  return fallbackFields
+    .map((fieldId) => renderCardBlock(fieldId, card, context, sourceUrl))
+    .filter(Boolean)
+    .join("") || `<div class="term">${escapeHtml(card.term)}</div>`;
+}
+
+function renderCardBlock(fieldId, card, context, sourceUrl) {
+  const labels = {
+    term: "Word",
+    reading: "Reading",
+    partOfSpeech: "Part of speech",
+    translation: "Translation",
+    definition: "Definition",
+    examples: "Examples",
+    context: "Context",
+    mnemonic: "Memory hint",
+    source: "Source"
+  };
+
+  if (fieldId === "term" && card.term) {
+    return `<div class="term">${escapeHtml(card.term)}</div>`;
+  }
+  if (fieldId === "reading" && card.reading) {
+    return `<div class="reading"><b>${labels.reading}:</b> ${escapeHtml(card.reading)}</div>`;
+  }
+  if (fieldId === "partOfSpeech" && card.partOfSpeech) {
+    return `<p><b>${labels.partOfSpeech}:</b> ${escapeHtml(card.partOfSpeech)}</p>`;
+  }
+  if (fieldId === "translation" && card.translation) {
+    return `<p><b>${labels.translation}:</b> ${escapeHtml(card.translation)}</p>`;
+  }
+  if (fieldId === "definition" && card.definition) {
+    return `<p><b>${labels.definition}:</b> ${escapeHtml(card.definition)}</p>`;
+  }
+  if (fieldId === "examples" && card.examples.length) {
+    return `<p><b>${labels.examples}:</b></p><ul>${card.examples.map((example) => (
+      `<li>${escapeHtml(example.sentence)}${example.translation ? `<br><small>${escapeHtml(example.translation)}</small>` : ""}</li>`
+    )).join("")}</ul>`;
+  }
+  if (fieldId === "context" && context) {
+    return `<p><b>${labels.context}:</b><br><span class="context">${highlightTerm(context, card.term)}</span></p>`;
+  }
+  if (fieldId === "mnemonic" && card.mnemonic) {
+    return `<p><b>${labels.mnemonic}:</b> ${escapeHtml(card.mnemonic)}</p>`;
+  }
+  if (fieldId === "source" && sourceUrl) {
+    return `<p><small><b>${labels.source}:</b> ${escapeHtml(sourceUrl)}</small></p>`;
+  }
+  return "";
+}
+
+function highlightTerm(context, term) {
+  const escapedContext = escapeHtml(context);
+  const cleanTerm = String(term || "").trim();
+  if (!cleanTerm) return escapedContext;
+  const escapedTerm = escapeRegExp(escapeHtml(cleanTerm));
+  return escapedContext.replace(new RegExp(`(${escapedTerm})`, "iu"), "<mark>$1</mark>");
 }
 
 async function callAnki(action, params = {}, timeoutMs = secondsToMs(DEFAULT_SETTINGS.ankiTimeoutSeconds)) {
@@ -446,6 +602,31 @@ function notifyTab(tabId, message) {
   chrome.tabs.sendMessage(tabId, message).catch(() => {});
 }
 
+function reportProgress(tabId, message) {
+  notifyTab(tabId, { type: "anki-card-progress", message });
+}
+
+function processSelectionFromTab({ tab, fallbackWord, fallbackContext }) {
+  if (!tab?.id) {
+    processSelection({ word: fallbackWord, context: fallbackContext, sourceUrl: "" }).catch(() => {});
+    return;
+  }
+
+  chrome.tabs.sendMessage(tab.id, { type: "read-selection" }, (response) => {
+    const pageReadError = chrome.runtime.lastError;
+    const word = pageReadError ? fallbackWord : response?.word || fallbackWord;
+    const context = pageReadError ? fallbackContext : response?.context || fallbackContext;
+    processSelection({
+      word,
+      context,
+      sourceUrl: tab.url || "",
+      tabId: tab.id
+    })
+      .then((result) => notifyTab(tab.id, { type: "anki-card-result", result }))
+      .catch((error) => notifyTab(tab.id, { type: "anki-card-error", error: toUserMessage(error) }));
+  });
+}
+
 function toUserMessage(error) {
   const message = String(error?.message || error || "Unknown error.");
   if (/Failed to fetch/i.test(message)) {
@@ -469,4 +650,8 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }

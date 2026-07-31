@@ -16,6 +16,8 @@
         <button id="saveButton" type="button">Сохранить</button>
       </header>
 
+      <p id="status" role="status"></p>
+
       <section>
         <h2>LLM API</h2>
         <div class="grid two">
@@ -53,7 +55,7 @@
           </label>
         </div>
         <div class="row">
-          <button id="testLlmButton" type="button" class="secondary">Проверить LLM ключ</button>
+          <button id="testLlmButton" type="button" class="secondary">Проверить генерацию LLM</button>
           <button id="newProfileButton" type="button" class="secondary">Новый профиль</button>
           <button id="deleteProfileButton" type="button" class="secondary danger">Удалить профиль</button>
         </div>
@@ -89,6 +91,59 @@
       </section>
 
       <section>
+        <h2>Режим карточки</h2>
+        <div class="mode-switch">
+          <label>
+            <input name="cardLayoutMode" type="radio" value="builder">
+            Builder: чекбоксы
+          </label>
+          <label>
+            <input name="cardLayoutMode" type="radio" value="pro">
+            Pro: prompt / JSON
+          </label>
+        </div>
+
+        <div class="mode-panel-frame">
+          <div id="builderCardSection" class="mode-panel">
+            <div class="grid two">
+              <div>
+                <h3>Front</h3>
+                <div class="checks card-fields" data-side="front">
+                  <label><input type="checkbox" value="term"> Word</label>
+                  <label><input type="checkbox" value="reading"> Reading</label>
+                  <label><input type="checkbox" value="partOfSpeech"> Part of speech</label>
+                  <label><input type="checkbox" value="translation"> Translation</label>
+                  <label><input type="checkbox" value="definition"> Definition</label>
+                  <label><input type="checkbox" value="context"> Context</label>
+                </div>
+              </div>
+              <div>
+                <h3>Back</h3>
+                <div class="checks card-fields" data-side="back">
+                  <label><input type="checkbox" value="term"> Word</label>
+                  <label><input type="checkbox" value="reading"> Reading</label>
+                  <label><input type="checkbox" value="partOfSpeech"> Part of speech</label>
+                  <label><input type="checkbox" value="translation"> Translation</label>
+                  <label><input type="checkbox" value="definition"> Definition</label>
+                  <label><input type="checkbox" value="examples"> Examples</label>
+                  <label><input type="checkbox" value="context"> Context</label>
+                  <label><input type="checkbox" value="mnemonic"> Mnemonic</label>
+                  <label><input type="checkbox" value="source"> Source URL</label>
+                </div>
+              </div>
+            </div>
+            <p class="hint">LLM все равно возвращает полный JSON, а чекбоксы решают, какие блоки попадут на Front и Back.</p>
+          </div>
+
+          <div id="proCardSection" class="mode-panel">
+            <h3>Pro: Prompt / JSON</h3>
+            <p class="hint">Можно использовать переменные {{word}}, {{context}} и {{language}}.</p>
+            <textarea id="promptTemplate" spellcheck="false"></textarea>
+          </div>
+        </div>
+      </section>
+
+      <section>
         <h2>Поведение</h2>
         <div class="checks">
           <label>
@@ -99,20 +154,37 @@
             <input id="showFloatingButton" type="checkbox">
             Показывать кнопку рядом с выделением
           </label>
+          <label>
+            <input id="includeContextInCard" type="checkbox">
+            В Pro-режиме добавлять контекст выделения в карточку
+          </label>
         </div>
+        <div class="grid two">
+          <label>
+            Сочетание клавиш
+            <div class="shortcut-row">
+              <input id="customShortcut" type="text" readonly>
+              <button id="recordShortcutButton" type="button" class="secondary">Записать</button>
+            </div>
+          </label>
+          <label>
+            Захват контекста
+            <select id="contextCaptureMode">
+              <option value="words">Слова слева/справа</option>
+              <option value="sentence">До пунктуации</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          Слов с каждой стороны: <span id="contextWordsValue">8</span>
+          <input id="contextWordsEachSide" type="range" min="0" max="40" step="1">
+        </label>
         <label>
           Target language
           <input id="language" type="text" placeholder="auto, English, German..." autocomplete="off">
         </label>
       </section>
 
-      <section>
-        <h2>Prompt</h2>
-        <p class="hint">Можно использовать переменные {{word}}, {{context}} и {{language}}.</p>
-        <textarea id="promptTemplate" spellcheck="false"></textarea>
-      </section>
-
-      <p id="status" role="status"></p>
     </main>
     <script src="options.js"></script>
   </body>
