@@ -171,11 +171,11 @@ async function processSelection(input) {
   const llmTimeoutMs = secondsToMs(settings.llmTimeoutSeconds, DEFAULT_SETTINGS.llmTimeoutSeconds);
   const ankiTimeoutMs = secondsToMs(settings.ankiTimeoutSeconds, DEFAULT_SETTINGS.ankiTimeoutSeconds);
 
-  reportProgress(input.tabId, "Checking Anki settings...");
+  reportProgress(input, "Checking Anki settings...");
   await validateAnkiTarget(settings, ankiTimeoutMs);
-  reportProgress(input.tabId, "Sending request to LLM...");
+  reportProgress(input, "Sending request to LLM...");
   const card = await generateCard({ word, context, settings, profile, timeoutMs: llmTimeoutMs });
-  reportProgress(input.tabId, "Adding generated card to Anki...");
+  reportProgress(input, "Adding generated card to Anki...");
   const noteId = await addCardToAnki({ card, context, settings, sourceUrl: input.sourceUrl || "", timeoutMs: ankiTimeoutMs });
   return { noteId, card };
 }
@@ -602,29 +602,84 @@ function notifyTab(tabId, message) {
   chrome.tabs.sendMessage(tabId, message).catch(() => {});
 }
 
-function reportProgress(tabId, message) {
-  notifyTab(tabId, { type: "anki-card-progress", message });
+function reportProgress(input, message) {
+  notifyTab(input.tabId, { type: "anki-card-progress", message });
+  if (input.useActionBadge) setActionProgress(message);
 }
 
 function processSelectionFromTab({ tab, fallbackWord, fallbackContext }) {
   if (!tab?.id) {
-    processSelection({ word: fallbackWord, context: fallbackContext, sourceUrl: "" }).catch(() => {});
+    setActionBadge("...", "#4b5563", "Creating Anki card from selection...");
+    processSelection({ word: fallbackWord, context: fallbackContext, sourceUrl: "", useActionBadge: true })
+      .then((result) => showActionResult(`Added "${result.card.term}" to Anki.`, true))
+      .catch((error) => showActionResult(toUserMessage(error), false));
     return;
   }
 
   chrome.tabs.sendMessage(tab.id, { type: "read-selection" }, (response) => {
     const pageReadError = chrome.runtime.lastError;
+    const useFallbackUi = Boolean(pageReadError);
     const word = pageReadError ? fallbackWord : response?.word || fallbackWord;
     const context = pageReadError ? fallbackContext : response?.context || fallbackContext;
+    if (useFallbackUi) {
+      setActionBadge("...", "#4b5563", "Creating Anki card from selection...");
+    }
     processSelection({
       word,
       context,
       sourceUrl: tab.url || "",
-      tabId: tab.id
+      tabId: useFallbackUi ? undefined : tab.id,
+      useActionBadge: useFallbackUi
     })
-      .then((result) => notifyTab(tab.id, { type: "anki-card-result", result }))
-      .catch((error) => notifyTab(tab.id, { type: "anki-card-error", error: toUserMessage(error) }));
+      .then((result) => {
+        if (useFallbackUi) {
+          showActionResult(`Added "${result.card.term}" to Anki.`, true);
+        } else {
+          notifyTab(tab.id, { type: "anki-card-result", result });
+        }
+      })
+      .catch((error) => {
+        if (useFallbackUi) {
+          showActionResult(toUserMessage(error), false);
+        } else {
+          notifyTab(tab.id, { type: "anki-card-error", error: toUserMessage(error) });
+        }
+      });
   });
+}
+
+function setActionProgress(message) {
+  if (/Anki settings/i.test(message)) {
+    setActionBadge("ANKI", "#6b7280", message);
+  } else if (/LLM/i.test(message)) {
+    setActionBadge("LLM", "#2563eb", message);
+  } else if (/Adding/i.test(message)) {
+    setActionBadge("ADD", "#7c3aed", message);
+  } else {
+    setActionBadge("...", "#4b5563", message);
+  }
+}
+
+function showActionResult(message, ok) {
+  setActionBadge(ok ? "OK" : "ERR", ok ? "#15803d" : "#b91c1c", message);
+  setTimeout(() => {
+    setActionBadge("", "#4b5563", "Anki AI Card Gen");
+  }, ok ? 5000 : 9000);
+}
+
+function setActionBadge(text, color, title) {
+  safeActionCall("setBadgeText", { text });
+  safeActionCall("setBadgeBackgroundColor", { color });
+  if (title) safeActionCall("setTitle", { title });
+}
+
+function safeActionCall(method, args) {
+  try {
+    const result = chrome.action?.[method]?.(args);
+    if (result?.catch) result.catch(() => {});
+  } catch {
+    // Some browser surfaces do not expose action updates while the service worker is waking up.
+  }
 }
 
 function toUserMessage(error) {

@@ -7,6 +7,7 @@ Browser extension for Google Chrome and Microsoft Edge. Select exactly one word 
 - Automatic card generation after selecting a word.
 - Floating `+ Anki` button near the selection.
 - Selection context menu.
+- Edge Immersive Reader fallback through the selection context menu.
 - Popup button for explicit debug-friendly creation from the current selection.
 - Browser fallback shortcut: `Alt+Shift+A`.
 - In-extension custom keyboard shortcut binding for pages where content scripts run. Default: `Ctrl+Shift+Y`.
@@ -107,10 +108,13 @@ Microsoft Edge supports this extension through the Chromium extension APIs used 
 
 The custom shortcut in the extension options works on ordinary web pages after the page has been reloaded. Browser-internal pages such as `edge://extensions` and `chrome://extensions` do not allow content scripts.
 
+Edge Immersive Reader is a browser-controlled reader surface. Content scripts and in-page floating buttons may be unavailable there. To create a card from Immersive Reader, select exactly one word, right-click it, and choose the extension context menu item. In that fallback path, Edge provides the selected word directly to the background script; the extension shows progress on the toolbar badge (`ANKI`, `LLM`, `ADD`, `OK`, or `ERR`). Surrounding page context may be unavailable in this mode.
+
 ## Debug Checklist
 
 - Reload the target web page after loading or reloading the unpacked extension.
 - The extension cannot run content scripts on browser pages like `edge://extensions`, `chrome://extensions`, or the web store.
+- In Edge Immersive Reader, use the right-click selection context menu rather than the floating button or in-page shortcut.
 - Keep Anki open while generating cards.
 - Run Check LLM key and Check Anki settings from the options page.
 - If generation starts but never finishes, lower the model latency or increase the LLM timeout in options.
