@@ -6,31 +6,31 @@
     <title>Anki AI Card Gen</title>
     <style>
       body {
-        width: 292px;
+        width: 400px;
         margin: 0;
-        padding: 14px;
+        padding: 18px;
         color: #15171c;
         background: #fffaf0;
         font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       }
       h1 {
-        margin: 0 0 8px;
-        font-size: 18px;
+        margin: 0 0 10px;
+        font-size: 21px;
         letter-spacing: 0;
       }
       p {
-        margin: 0 0 12px;
+        margin: 0 0 16px;
         color: #66706f;
-        font-size: 13px;
-        line-height: 1.35;
+        font-size: 14px;
+        line-height: 1.45;
       }
       .stack {
         display: grid;
-        gap: 8px;
+        gap: 10px;
       }
       button {
         width: 100%;
-        min-height: 38px;
+        min-height: 44px;
         border: 0;
         border-radius: 8px;
         color: #fffaf0;
@@ -44,11 +44,16 @@
         color: #15171c;
         background: #ece5d8;
       }
+      button.reader {
+        color: #fff;
+        background: #2f3b47;
+      }
       #status {
-        min-height: 18px;
-        margin-top: 10px;
+        min-height: 20px;
+        margin-top: 12px;
         color: #66706f;
-        font-size: 12px;
+        font-size: 13px;
+        line-height: 1.4;
       }
     </style>
   </head>
@@ -57,6 +62,7 @@
     <p>Выделите ровно одно слово. Предложение рядом будет добавлено как контекст.</p>
     <div class="stack">
       <button id="createButton" type="button">Создать из выделения</button>
+      <button id="readerButton" type="button" class="reader">Открыть PDF Reader</button>
       <button id="optionsButton" type="button" class="secondary">Открыть настройки</button>
     </div>
     <div id="status" role="status"></div>

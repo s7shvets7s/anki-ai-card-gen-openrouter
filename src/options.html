@@ -13,13 +13,34 @@
           <p class="eyebrow">Browser extension</p>
           <h1>Anki AI Card Gen</h1>
         </div>
-        <button id="saveButton" type="button">Сохранить</button>
+        <span id="autosaveState" class="autosave-state">Загрузка...</span>
       </header>
 
       <p id="status" role="status"></p>
 
       <section>
         <h2>LLM API</h2>
+        <div class="security-panel">
+          <div>
+            <h3>Защита API-ключей</h3>
+            <p id="vaultStatus" class="hint"></p>
+          </div>
+          <div id="vaultPassphraseFields" class="grid two">
+            <label>
+              Мастер-пароль
+              <input id="vaultPassphrase" type="password" autocomplete="current-password">
+            </label>
+            <label id="vaultConfirmLabel">
+              Повторите мастер-пароль
+              <input id="vaultPassphraseConfirm" type="password" autocomplete="new-password">
+            </label>
+          </div>
+          <div class="row">
+            <button id="enableVaultButton" type="button" class="secondary">Зашифровать ключи</button>
+            <button id="unlockVaultButton" type="button" class="secondary" hidden>Разблокировать</button>
+            <button id="lockVaultButton" type="button" class="secondary" hidden>Заблокировать</button>
+          </div>
+        </div>
         <div class="grid two">
           <label>
             Профиль ключа
@@ -158,7 +179,12 @@
             <input id="includeContextInCard" type="checkbox">
             В Pro-режиме добавлять контекст выделения в карточку
           </label>
+          <label>
+            <input id="suppressEdgeMiniMenu" type="checkbox">
+            Скрывать системное мини-меню Edge в PDF Reader
+          </label>
         </div>
+        <p class="hint">Если Edge все равно показывает свое меню, отключите «Show mini menu when selecting text» в edge://settings/appearance.</p>
         <div class="grid two">
           <label>
             Сочетание клавиш
@@ -186,6 +212,7 @@
       </section>
 
     </main>
+    <script src="api-vault.js"></script>
     <script src="options.js"></script>
   </body>
 </html>

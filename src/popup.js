@@ -1,4 +1,5 @@
 const createButton = document.getElementById("createButton");
+const readerButton = document.getElementById("readerButton");
 const optionsButton = document.getElementById("optionsButton");
 const statusNode = document.getElementById("status");
 
@@ -29,6 +30,24 @@ createButton.addEventListener("click", async () => {
 optionsButton.addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
+
+readerButton.addEventListener("click", async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const readerUrl = new URL(chrome.runtime.getURL("src/pdf-reader.html"));
+  if (isRemotePdfUrl(tab?.url, tab?.title)) readerUrl.searchParams.set("url", tab.url);
+  await chrome.tabs.create({ url: readerUrl.href });
+  window.close();
+});
+
+function isRemotePdfUrl(value, title = "") {
+  try {
+    const url = new URL(value);
+    return /^https?:$/.test(url.protocol)
+      && (/\.pdf$/i.test(url.pathname) || /\.pdf(?:\s|$)/i.test(title));
+  } catch {
+    return false;
+  }
+}
 
 function setStatus(message) {
   statusNode.textContent = message;

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Anki PDF Reader</title>
+    <link rel="stylesheet" href="pdf-reader.css">
+  </head>
+  <body>
+    <header class="toolbar">
+      <div class="brand" title="Anki PDF Reader">
+        <span class="brand-mark">A</span>
+        <span>Anki Reader</span>
+      </div>
+
+      <div class="toolbar-group file-tools">
+        <button id="openFileButton" type="button" class="tool-button command">Открыть PDF</button>
+        <input id="fileInput" type="file" accept="application/pdf,.pdf" hidden>
+        <span id="documentName" class="document-name">PDF не открыт</span>
+      </div>
+
+      <div class="toolbar-group page-tools" aria-label="Навигация по страницам">
+        <button id="previousPageButton" type="button" class="icon-button" title="Предыдущая страница" aria-label="Предыдущая страница">&#8592;</button>
+        <label class="page-counter">
+          <span class="sr-only">Номер страницы</span>
+          <input id="pageNumber" type="number" min="1" value="1">
+          <span>/ <span id="pageCount">0</span></span>
+        </label>
+        <button id="nextPageButton" type="button" class="icon-button" title="Следующая страница" aria-label="Следующая страница">&#8594;</button>
+      </div>
+
+      <div class="toolbar-group zoom-tools" aria-label="Масштаб">
+        <button id="zoomOutButton" type="button" class="icon-button" title="Уменьшить" aria-label="Уменьшить">&#8722;</button>
+        <button id="fitWidthButton" type="button" class="tool-button zoom-value" title="По ширине страницы">По ширине</button>
+        <button id="zoomInButton" type="button" class="icon-button" title="Увеличить" aria-label="Увеличить">+</button>
+        <label class="edge-menu-toggle" title="Скрывать системное меню Edge при выделении текста">
+          <input id="edgeMenuToggle" type="checkbox" aria-label="Скрывать системное меню Edge">
+          <span>Без меню Edge</span>
+        </label>
+      </div>
+
+      <button id="settingsButton" type="button" class="icon-button settings-button" title="Настройки расширения" aria-label="Настройки расширения">&#9881;</button>
+    </header>
+
+    <main id="readerViewport" class="reader-viewport">
+      <section id="emptyState" class="empty-state">
+        <div class="empty-copy">
+          <p class="eyebrow">PDF workspace</p>
+          <h1>Откройте PDF и выделите незнакомое слово</h1>
+          <p>Текст остается выделяемым, а карточка создается через тот же LLM и AnkiConnect.</p>
+          <button id="emptyOpenButton" type="button" class="primary-button">Выбрать PDF</button>
+        </div>
+      </section>
+
+      <section id="loadingState" class="loading-state" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <p id="loadingText">Открываю PDF...</p>
+      </section>
+
+      <div id="pageArea" class="page-area" hidden>
+        <div id="pagesContainer" class="pages-container"></div>
+      </div>
+    </main>
+
+    <button id="ankiButton" type="button" class="anki-button" hidden>+ Anki</button>
+    <div id="toast" class="toast" role="status" hidden></div>
+    <div id="dropOverlay" class="drop-overlay" hidden>Отпустите PDF, чтобы открыть</div>
+
+    <script type="module" src="pdf-reader.js"></script>
+  </body>
+</html>

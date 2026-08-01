@@ -1,3 +1,5 @@
+importScripts("api-vault.js");
+
 const DEFAULT_PROMPT = `Create an Anki card for exactly one selected word.
 
 Term: {{word}}
@@ -36,6 +38,7 @@ const DEFAULT_SETTINGS = {
   customShortcut: "Ctrl+Shift+Y",
   contextCaptureMode: "words",
   contextWordsEachSide: 8,
+  suppressEdgeMiniMenu: true,
   includeContextInCard: true,
   cardLayoutMode: "builder",
   frontTemplateFields: ["term", "reading"],
@@ -102,8 +105,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     processSelection({
       word: message.word,
       context: message.context || "",
-      sourceUrl: sender.tab?.url || "",
-      tabId: sender.tab?.id
+      sourceUrl: message.sourceUrl || sender.tab?.url || "",
+      tabId: sender.tab?.id,
+      requestId: message.requestId || "",
+      runtimeProgress: Boolean(message.runtimeProgress)
     })
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: toUserMessage(error) }));
@@ -143,8 +148,8 @@ async function ensureDefaults() {
     await chrome.storage.sync.set(missingSettings);
   }
 
-  const localData = await chrome.storage.local.get(["apiProfiles"]);
-  if (!Array.isArray(localData.apiProfiles) || localData.apiProfiles.length === 0) {
+  const localData = await chrome.storage.local.get(["apiProfiles", "apiProfilesVault"]);
+  if (!localData.apiProfilesVault && (!Array.isArray(localData.apiProfiles) || localData.apiProfiles.length === 0)) {
     await chrome.storage.local.set({ apiProfiles: [DEFAULT_PROFILE] });
   }
 }
@@ -155,7 +160,7 @@ async function getConfig() {
     ...DEFAULT_SETTINGS,
     ...(await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS)))
   };
-  const { apiProfiles = [DEFAULT_PROFILE] } = await chrome.storage.local.get(["apiProfiles"]);
+  const apiProfiles = await ApiVault.loadProfiles([DEFAULT_PROFILE]);
   const profile = apiProfiles.find((item) => item.id === settings.activeProfileId) || apiProfiles[0];
   return { settings, profile: { ...DEFAULT_PROFILE, ...profile } };
 }
@@ -604,6 +609,13 @@ function notifyTab(tabId, message) {
 
 function reportProgress(input, message) {
   notifyTab(input.tabId, { type: "anki-card-progress", message });
+  if (input.runtimeProgress) {
+    chrome.runtime.sendMessage({
+      type: "anki-card-progress",
+      requestId: input.requestId,
+      message
+    }).catch(() => {});
+  }
   if (input.useActionBadge) setActionProgress(message);
 }
 
@@ -684,6 +696,9 @@ function safeActionCall(method, args) {
 
 function toUserMessage(error) {
   const message = String(error?.message || error || "Unknown error.");
+  if (error?.name === "VaultLockedError") {
+    return "Хранилище API-ключей заблокировано. Откройте настройки расширения и введите мастер-пароль.";
+  }
   if (/Failed to fetch/i.test(message)) {
     return "Network request failed. Check internet access, provider Base URL, and that Anki is open for AnkiConnect.";
   }
