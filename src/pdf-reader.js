@@ -37,6 +37,15 @@ const elements = {
   loadingText: document.getElementById("loadingText"),
   pageArea: document.getElementById("pageArea"),
   pagesContainer: document.getElementById("pagesContainer"),
+  dictionaryPanel: document.getElementById("dictionaryPanel"),
+  dictionaryWord: document.getElementById("dictionaryWord"),
+  dictionaryPronunciation: document.getElementById("dictionaryPronunciation"),
+  dictionaryMeanings: document.getElementById("dictionaryMeanings"),
+  dictionaryExamplesSection: document.getElementById("dictionaryExamplesSection"),
+  dictionaryExamples: document.getElementById("dictionaryExamples"),
+  dictionaryStatus: document.getElementById("dictionaryStatus"),
+  dictionarySource: document.getElementById("dictionarySource"),
+  dictionaryCloseButton: document.getElementById("dictionaryCloseButton"),
   ankiButton: document.getElementById("ankiButton"),
   toast: document.getElementById("toast"),
   dropOverlay: document.getElementById("dropOverlay")
@@ -57,6 +66,7 @@ let settings = {
   contextWordsEachSide: 8,
   suppressEdgeMiniMenu: true,
   showFloatingButton: true,
+  showDictionaryPopup: true,
   autoCreateOnSelection: false,
   llmTimeoutSeconds: 45,
   ankiTimeoutSeconds: 8
@@ -72,6 +82,8 @@ let readerTabId = null;
 let wheelZoomTimer = 0;
 let pendingWheelScale = null;
 let sessionSaveTimer = 0;
+let dictionaryTimer = 0;
+let dictionaryRequestId = 0;
 
 initialize();
 
@@ -119,6 +131,8 @@ function bindEvents() {
   elements.settingsButton.addEventListener("click", () => chrome.runtime.openOptionsPage());
   elements.ankiButton.addEventListener("mousedown", (event) => event.preventDefault());
   elements.ankiButton.addEventListener("click", processCurrentSelection);
+  elements.dictionaryPanel.addEventListener("mousedown", (event) => event.preventDefault());
+  elements.dictionaryCloseButton.addEventListener("click", hideDictionaryPanel);
   document.addEventListener("selectionchange", onSelectionChange);
   document.addEventListener("mouseup", suppressEdgeMiniMenu, true);
   document.addEventListener("keydown", onKeyDown, true);
@@ -146,6 +160,7 @@ function bindEvents() {
       if (changes[key]) settings[key] = changes[key].newValue;
     }
     elements.edgeMenuToggle.checked = Boolean(settings.suppressEdgeMiniMenu);
+    if (changes.showDictionaryPopup && !settings.showDictionaryPopup) hideDictionaryPanel();
   });
 }
 
@@ -245,7 +260,7 @@ async function rebuildPageLayout(preservePage = true, restoredPageRatio = 0) {
   const generation = ++layoutGeneration;
   const anchorPage = pageNumber;
   const anchorRatio = preservePage ? getPageAnchorRatio(anchorPage) : restoredPageRatio;
-  hideAnkiButton();
+  hideSelectionUi();
   disconnectPageObserver();
   for (const view of pageViews.values()) cancelPageRender(view);
 
@@ -422,7 +437,7 @@ function getPageAnchorRatio(number) {
 }
 
 function onReaderScroll() {
-  hideAnkiButton();
+  hideSelectionUi();
   window.clearTimeout(scrollTimer);
   scrollTimer = window.setTimeout(() => {
     updateCurrentPageFromScroll();
@@ -516,10 +531,12 @@ function onSelectionChange() {
   window.clearTimeout(autoTimer);
   const selection = readSelection();
   if (!selection.word) {
-    hideAnkiButton();
+    hideSelectionUi();
     return;
   }
   if (settings.showFloatingButton) showAnkiButton(selection.rect);
+  if (settings.showDictionaryPopup) scheduleDictionaryLookup(selection);
+  else hideDictionaryPanel();
   if (settings.autoCreateOnSelection) {
     autoTimer = window.setTimeout(() => processSelection(selection), 650);
   }
@@ -642,6 +659,112 @@ function showAnkiButton(rect) {
 
 function hideAnkiButton() {
   elements.ankiButton.hidden = true;
+}
+
+function hideSelectionUi() {
+  hideAnkiButton();
+  hideDictionaryPanel();
+}
+
+function scheduleDictionaryLookup(selection) {
+  window.clearTimeout(dictionaryTimer);
+  const requestId = ++dictionaryRequestId;
+  showDictionaryLoading(selection.word, selection.rect);
+  dictionaryTimer = window.setTimeout(() => {
+    chrome.runtime.sendMessage({
+      type: "lookup-dictionary-word",
+      word: selection.word,
+      language: "en"
+    }, (response) => {
+      if (requestId !== dictionaryRequestId) return;
+      if (chrome.runtime.lastError) {
+        showDictionaryError(chrome.runtime.lastError.message, selection.rect);
+        return;
+      }
+      if (!response?.ok) {
+        showDictionaryError(response?.error || "Definition not found.", selection.rect);
+        return;
+      }
+      renderDictionaryResult(response.result, selection.rect);
+    });
+  }, 180);
+}
+
+function showDictionaryLoading(word, rect) {
+  elements.dictionaryWord.textContent = word;
+  elements.dictionaryPronunciation.textContent = "";
+  elements.dictionaryMeanings.replaceChildren();
+  elements.dictionaryExamples.replaceChildren();
+  elements.dictionaryExamplesSection.hidden = true;
+  elements.dictionarySource.hidden = true;
+  elements.dictionaryStatus.hidden = false;
+  elements.dictionaryStatus.dataset.tone = "info";
+  elements.dictionaryStatus.textContent = "Looking up...";
+  showDictionaryPanel(rect);
+}
+
+function showDictionaryError(message, rect) {
+  elements.dictionaryMeanings.replaceChildren();
+  elements.dictionaryExamples.replaceChildren();
+  elements.dictionaryExamplesSection.hidden = true;
+  elements.dictionarySource.hidden = true;
+  elements.dictionaryStatus.hidden = false;
+  elements.dictionaryStatus.dataset.tone = "error";
+  elements.dictionaryStatus.textContent = message;
+  showDictionaryPanel(rect);
+}
+
+function renderDictionaryResult(result, rect) {
+  elements.dictionaryWord.textContent = result.word;
+  elements.dictionaryPronunciation.textContent = result.pronunciation || "";
+  elements.dictionaryStatus.hidden = true;
+  elements.dictionaryMeanings.replaceChildren(...result.meanings.slice(0, 2).map((meaning) => {
+    const block = document.createElement("div");
+    block.className = "dictionary-meaning";
+    if (meaning.partOfSpeech) {
+      const partOfSpeech = document.createElement("div");
+      partOfSpeech.className = "dictionary-pos";
+      partOfSpeech.textContent = meaning.partOfSpeech;
+      block.appendChild(partOfSpeech);
+    }
+    const definition = document.createElement("p");
+    definition.className = "dictionary-definition";
+    definition.textContent = meaning.definition;
+    block.appendChild(definition);
+    return block;
+  }));
+  elements.dictionaryExamples.replaceChildren(...result.examples.slice(0, 2).map((example) => {
+    const item = document.createElement("li");
+    item.textContent = example;
+    return item;
+  }));
+  elements.dictionaryExamplesSection.hidden = result.examples.length === 0;
+  elements.dictionarySource.href = result.sourceUrl || "https://en.wiktionary.org/";
+  elements.dictionarySource.textContent = result.attribution || "FreeDictionaryAPI.com · Wiktionary · CC BY-SA";
+  elements.dictionarySource.hidden = false;
+  showDictionaryPanel(rect);
+}
+
+function showDictionaryPanel(rect) {
+  if (!rect) return;
+  elements.dictionaryPanel.hidden = false;
+  elements.dictionaryPanel.style.visibility = "hidden";
+  window.requestAnimationFrame(() => {
+    const panelRect = elements.dictionaryPanel.getBoundingClientRect();
+    const left = Math.min(window.innerWidth - panelRect.width - 8, Math.max(8, rect.left));
+    const below = rect.bottom + 10;
+    const above = rect.top - panelRect.height - 10;
+    const top = below + panelRect.height <= window.innerHeight - 8 ? below : Math.max(64, above);
+    elements.dictionaryPanel.style.left = `${left}px`;
+    elements.dictionaryPanel.style.top = `${top}px`;
+    elements.dictionaryPanel.style.visibility = "visible";
+  });
+}
+
+function hideDictionaryPanel() {
+  window.clearTimeout(dictionaryTimer);
+  dictionaryRequestId += 1;
+  elements.dictionaryPanel.hidden = true;
 }
 
 function processCurrentSelection() {

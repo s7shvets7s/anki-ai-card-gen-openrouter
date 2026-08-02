@@ -10,6 +10,7 @@ Browser extension for Google Chrome and Microsoft Edge. Select exactly one word 
 - Edge Immersive Reader fallback through the selection context menu.
 - Built-in PDF reader powered by Mozilla PDF.js, with continuous scrolling, lazy page rendering, selectable text, drag and drop, page navigation, and zoom.
 - `Open PDF Reader` button in the extension popup; an active remote PDF is opened automatically.
+- Fast English-to-English dictionary popup with concise meanings and up to two examples, without an LLM request.
 - Popup button for explicit debug-friendly creation from the current selection.
 - Browser fallback shortcut: `Alt+Shift+A`.
 - In-extension custom keyboard shortcut binding for pages where content scripts run. Default: `Ctrl+Shift+Y`.
@@ -80,6 +81,8 @@ The reader displays pages in one continuous vertical stream and lazily renders n
 The reader remembers the last open PDF and the current position inside its page. Remote documents are restored from their URL. The most recently opened local PDF is stored in the extension's local IndexedDB storage so it can be reopened without asking for the file again.
 
 The `Без меню Edge` checkbox attempts to suppress the Edge selection mini menu inside the reader and is synchronized with the extension settings. Edge ultimately owns this browser-level menu; if it still appears, disable `Show mini menu when selecting text` in `edge://settings/appearance`.
+
+The optional quick dictionary popup uses FreeDictionaryAPI.com data sourced from Wiktionary. It sends only the selected word, never the surrounding page context. It shows up to two concise English definitions and two examples, caches successful lookups locally for 30 days, and times out independently from card generation. The pilot mode is English-to-English; other source languages remain disabled because the current provider returns English glosses for them rather than same-language definitions. Dictionary content is available under CC BY-SA and the popup links back to its Wiktionary source.
 
 Password-protected PDFs are not supported in this version. PDF.js is bundled locally under its Apache 2.0 license; no document is uploaded to a third-party reader service.
 

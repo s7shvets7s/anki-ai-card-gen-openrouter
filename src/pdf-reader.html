@@ -62,6 +62,25 @@
       </div>
     </main>
 
+    <aside id="dictionaryPanel" class="dictionary-panel" role="dialog" aria-label="Быстрое определение" hidden>
+      <header class="dictionary-header">
+        <div class="dictionary-title">
+          <strong id="dictionaryWord" class="dictionary-word"></strong>
+          <span id="dictionaryPronunciation" class="dictionary-pronunciation"></span>
+        </div>
+        <button id="dictionaryCloseButton" type="button" class="dictionary-close" title="Закрыть" aria-label="Закрыть">x</button>
+      </header>
+      <div class="dictionary-body">
+        <p id="dictionaryStatus" class="dictionary-status" role="status"></p>
+        <div id="dictionaryMeanings"></div>
+        <div id="dictionaryExamplesSection" class="dictionary-examples" hidden>
+          <p class="dictionary-examples-label">Examples</p>
+          <ol id="dictionaryExamples"></ol>
+        </div>
+        <a id="dictionarySource" class="dictionary-source" target="_blank" rel="noreferrer" hidden></a>
+      </div>
+    </aside>
+
     <button id="ankiButton" type="button" class="anki-button" hidden>+ Anki</button>
     <div id="toast" class="toast" role="status" hidden></div>
     <div id="dropOverlay" class="drop-overlay" hidden>Отпустите PDF, чтобы открыть</div>

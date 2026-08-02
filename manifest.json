@@ -3,7 +3,7 @@
   "name": "Anki AI Card Gen",
   "short_name": "Anki AI",
   "description": "Generate Anki cards from selected words in Chrome or Microsoft Edge with an LLM and AnkiConnect.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "minimum_chrome_version": "114",
   "permissions": [
     "contextMenus",

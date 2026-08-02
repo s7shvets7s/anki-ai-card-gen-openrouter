@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS = {
   defaultTags: "ai-generated selected-word",
   autoCreateOnSelection: true,
   showFloatingButton: true,
+  showDictionaryPopup: true,
   promptTemplate: "",
   llmTimeoutSeconds: 45,
   ankiTimeoutSeconds: 8,
@@ -46,6 +47,7 @@ const fields = {
   defaultTags: document.getElementById("defaultTags"),
   autoCreateOnSelection: document.getElementById("autoCreateOnSelection"),
   showFloatingButton: document.getElementById("showFloatingButton"),
+  showDictionaryPopup: document.getElementById("showDictionaryPopup"),
   includeContextInCard: document.getElementById("includeContextInCard"),
   customShortcut: document.getElementById("customShortcut"),
   contextCaptureMode: document.getElementById("contextCaptureMode"),
@@ -144,6 +146,7 @@ function render() {
   fields.defaultTags.value = settings.defaultTags;
   fields.autoCreateOnSelection.checked = Boolean(settings.autoCreateOnSelection);
   fields.showFloatingButton.checked = Boolean(settings.showFloatingButton);
+  fields.showDictionaryPopup.checked = Boolean(settings.showDictionaryPopup);
   fields.includeContextInCard.checked = Boolean(settings.includeContextInCard);
   fields.customShortcut.value = settings.customShortcut;
   fields.contextCaptureMode.value = settings.contextCaptureMode;
@@ -219,6 +222,7 @@ function readSettingsFromForm() {
     defaultTags: fields.defaultTags.value.trim(),
     autoCreateOnSelection: fields.autoCreateOnSelection.checked,
     showFloatingButton: fields.showFloatingButton.checked,
+    showDictionaryPopup: fields.showDictionaryPopup.checked,
     includeContextInCard: fields.includeContextInCard.checked,
     customShortcut: fields.customShortcut.value.trim() || "Ctrl+Shift+Y",
     contextCaptureMode: fields.contextCaptureMode.value === "sentence" ? "sentence" : "words",

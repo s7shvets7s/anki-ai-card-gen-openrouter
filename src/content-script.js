@@ -7,15 +7,26 @@ const UI_TIMEOUT_GRACE_MS = 10000;
 let root;
 let button;
 let toast;
+let dictionaryPanel;
+let dictionaryWord;
+let dictionaryPronunciation;
+let dictionaryMeanings;
+let dictionaryExamples;
+let dictionaryExamplesSection;
+let dictionaryStatus;
+let dictionarySource;
 let lastSelection = "";
 let lastAutoSelection = "";
 let autoTimer;
 let requestTimer;
+let dictionaryTimer;
+let dictionaryRequestId = 0;
 let isProcessing = false;
 let currentStage = "idle";
 let settings = {
   autoCreateOnSelection: true,
   showFloatingButton: true,
+  showDictionaryPopup: true,
   customShortcut: "Ctrl+Shift+Y",
   contextCaptureMode: "words",
   contextWordsEachSide: 8,
@@ -30,13 +41,14 @@ function init() {
   loadSettings();
   document.addEventListener("selectionchange", onSelectionChange);
   document.addEventListener("keydown", onKeyDown, true);
-  document.addEventListener("scroll", hideButton, { passive: true });
+  document.addEventListener("scroll", hideSelectionUi, { passive: true });
 
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "sync") return;
     for (const [key, change] of Object.entries(changes)) {
       settings[key] = change.newValue;
     }
+    if (changes.showDictionaryPopup && !settings.showDictionaryPopup) hideDictionaryPanel();
   });
 }
 
@@ -44,6 +56,7 @@ function loadSettings() {
   chrome.storage.sync.get([
     "autoCreateOnSelection",
     "showFloatingButton",
+    "showDictionaryPopup",
     "customShortcut",
     "contextCaptureMode",
     "contextWordsEachSide",
@@ -67,7 +80,7 @@ function createUi() {
       all: initial;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
-    button {
+    .anki-button {
       position: fixed;
       z-index: 2147483647;
       display: none;
@@ -85,7 +98,106 @@ function createUi() {
       letter-spacing: 0;
       cursor: pointer;
     }
-    button:hover { background: #272d36; }
+    .anki-button:hover { background: #272d36; }
+    .dictionary-panel {
+      position: fixed;
+      z-index: 2147483646;
+      display: none;
+      width: min(360px, calc(100vw - 16px));
+      max-height: min(390px, calc(100vh - 16px));
+      overflow: auto;
+      border: 1px solid rgba(20, 25, 36, .16);
+      border-radius: 8px;
+      color: #1d2524;
+      background: #fffef9;
+      box-shadow: 0 14px 38px rgba(0, 0, 0, .24);
+      font-size: 13px;
+      line-height: 1.42;
+    }
+    .dictionary-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+      padding: 13px 14px 9px;
+      border-bottom: 1px solid #e5e1d8;
+    }
+    .dictionary-title {
+      min-width: 0;
+    }
+    .dictionary-word {
+      display: block;
+      overflow-wrap: anywhere;
+      font-size: 18px;
+      font-weight: 780;
+      line-height: 1.2;
+    }
+    .dictionary-pronunciation {
+      display: block;
+      margin-top: 3px;
+      color: #68716e;
+      font-size: 12px;
+    }
+    .dictionary-close {
+      width: 26px;
+      height: 26px;
+      border: 0;
+      border-radius: 5px;
+      color: #56605d;
+      background: transparent;
+      font: 700 15px/1 system-ui, sans-serif;
+      cursor: pointer;
+    }
+    .dictionary-close:hover { background: #efede7; }
+    .dictionary-body {
+      padding: 11px 14px 12px;
+    }
+    .dictionary-status {
+      margin: 0;
+      color: #68716e;
+    }
+    .dictionary-status[data-tone="error"] { color: #8b3039; }
+    .dictionary-meaning + .dictionary-meaning {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #ebe7df;
+    }
+    .dictionary-pos {
+      margin-bottom: 3px;
+      color: #1d6a58;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .dictionary-definition {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+    .dictionary-examples {
+      margin-top: 11px;
+      padding-top: 9px;
+      border-top: 1px solid #ebe7df;
+    }
+    .dictionary-examples-label {
+      margin: 0 0 5px;
+      color: #68716e;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .dictionary-examples ol {
+      margin: 0;
+      padding-left: 19px;
+    }
+    .dictionary-examples li + li { margin-top: 4px; }
+    .dictionary-source {
+      display: inline-block;
+      margin-top: 10px;
+      color: #536b64;
+      font-size: 10px;
+      text-decoration: none;
+    }
+    .dictionary-source:hover { text-decoration: underline; }
     .toast {
       position: fixed;
       right: 18px;
@@ -107,15 +219,57 @@ function createUi() {
   `;
   button = document.createElement("button");
   button.type = "button";
+  button.className = "anki-button";
   button.textContent = "+ Anki";
   button.title = "Create an Anki card from the selection";
+  dictionaryPanel = document.createElement("aside");
+  dictionaryPanel.className = "dictionary-panel";
+  dictionaryPanel.setAttribute("role", "dialog");
+  dictionaryPanel.setAttribute("aria-label", "Quick dictionary definition");
+  const dictionaryHeader = document.createElement("div");
+  dictionaryHeader.className = "dictionary-header";
+  const dictionaryTitle = document.createElement("div");
+  dictionaryTitle.className = "dictionary-title";
+  dictionaryWord = document.createElement("strong");
+  dictionaryWord.className = "dictionary-word";
+  dictionaryPronunciation = document.createElement("span");
+  dictionaryPronunciation.className = "dictionary-pronunciation";
+  dictionaryTitle.append(dictionaryWord, dictionaryPronunciation);
+  const dictionaryClose = document.createElement("button");
+  dictionaryClose.type = "button";
+  dictionaryClose.className = "dictionary-close";
+  dictionaryClose.textContent = "x";
+  dictionaryClose.title = "Close definition";
+  dictionaryClose.setAttribute("aria-label", "Close definition");
+  dictionaryHeader.append(dictionaryTitle, dictionaryClose);
+  const dictionaryBody = document.createElement("div");
+  dictionaryBody.className = "dictionary-body";
+  dictionaryStatus = document.createElement("p");
+  dictionaryStatus.className = "dictionary-status";
+  dictionaryStatus.setAttribute("role", "status");
+  dictionaryMeanings = document.createElement("div");
+  dictionaryExamplesSection = document.createElement("div");
+  dictionaryExamplesSection.className = "dictionary-examples";
+  const examplesLabel = document.createElement("p");
+  examplesLabel.className = "dictionary-examples-label";
+  examplesLabel.textContent = "Examples";
+  dictionaryExamples = document.createElement("ol");
+  dictionaryExamplesSection.append(examplesLabel, dictionaryExamples);
+  dictionarySource = document.createElement("a");
+  dictionarySource.className = "dictionary-source";
+  dictionarySource.target = "_blank";
+  dictionarySource.rel = "noreferrer";
+  dictionaryBody.append(dictionaryStatus, dictionaryMeanings, dictionaryExamplesSection, dictionarySource);
+  dictionaryPanel.append(dictionaryHeader, dictionaryBody);
   toast = document.createElement("div");
   toast.className = "toast";
-  shadow.append(style, button, toast);
+  shadow.append(style, button, dictionaryPanel, toast);
   document.documentElement.appendChild(root);
 
   button.addEventListener("mousedown", (event) => event.preventDefault());
   button.addEventListener("click", () => processCurrentSelection());
+  dictionaryPanel.addEventListener("mousedown", (event) => event.preventDefault());
+  dictionaryClose.addEventListener("click", hideDictionaryPanel);
 }
 
 function onSelectionChange() {
@@ -124,11 +278,13 @@ function onSelectionChange() {
     const selection = readSelection();
     lastSelection = selection.word;
     if (!selection.word) {
-      hideButton();
+      hideSelectionUi();
       return;
     }
 
     if (settings.showFloatingButton) showButton(selection.rect);
+    if (settings.showDictionaryPopup) scheduleDictionaryLookup(selection);
+    else hideDictionaryPanel();
     if (settings.autoCreateOnSelection && selection.word !== lastAutoSelection) {
       autoTimer = window.setTimeout(() => {
         lastAutoSelection = selection.word;
@@ -280,6 +436,112 @@ function showButton(rect) {
 
 function hideButton() {
   if (button) button.style.display = "none";
+}
+
+function hideSelectionUi() {
+  hideButton();
+  hideDictionaryPanel();
+}
+
+function scheduleDictionaryLookup(selection) {
+  window.clearTimeout(dictionaryTimer);
+  const requestId = ++dictionaryRequestId;
+  showDictionaryLoading(selection.word, selection.rect);
+  dictionaryTimer = window.setTimeout(() => {
+    chrome.runtime.sendMessage({
+      type: "lookup-dictionary-word",
+      word: selection.word,
+      language: "en"
+    }, (response) => {
+      if (requestId !== dictionaryRequestId) return;
+      if (chrome.runtime.lastError) {
+        showDictionaryError(chrome.runtime.lastError.message, selection.rect);
+        return;
+      }
+      if (!response?.ok) {
+        showDictionaryError(response?.error || "Definition not found.", selection.rect);
+        return;
+      }
+      renderDictionaryResult(response.result, selection.rect);
+    });
+  }, 180);
+}
+
+function showDictionaryLoading(word, rect) {
+  dictionaryWord.textContent = word;
+  dictionaryPronunciation.textContent = "";
+  dictionaryMeanings.replaceChildren();
+  dictionaryExamples.replaceChildren();
+  dictionaryExamplesSection.hidden = true;
+  dictionarySource.hidden = true;
+  dictionaryStatus.hidden = false;
+  dictionaryStatus.dataset.tone = "info";
+  dictionaryStatus.textContent = "Looking up...";
+  showDictionaryPanel(rect);
+}
+
+function showDictionaryError(message, rect) {
+  dictionaryMeanings.replaceChildren();
+  dictionaryExamples.replaceChildren();
+  dictionaryExamplesSection.hidden = true;
+  dictionarySource.hidden = true;
+  dictionaryStatus.hidden = false;
+  dictionaryStatus.dataset.tone = "error";
+  dictionaryStatus.textContent = message;
+  showDictionaryPanel(rect);
+}
+
+function renderDictionaryResult(result, rect) {
+  dictionaryWord.textContent = result.word;
+  dictionaryPronunciation.textContent = result.pronunciation || "";
+  dictionaryStatus.hidden = true;
+  dictionaryMeanings.replaceChildren(...result.meanings.slice(0, 2).map((meaning) => {
+    const block = document.createElement("div");
+    block.className = "dictionary-meaning";
+    if (meaning.partOfSpeech) {
+      const partOfSpeech = document.createElement("div");
+      partOfSpeech.className = "dictionary-pos";
+      partOfSpeech.textContent = meaning.partOfSpeech;
+      block.appendChild(partOfSpeech);
+    }
+    const definition = document.createElement("p");
+    definition.className = "dictionary-definition";
+    definition.textContent = meaning.definition;
+    block.appendChild(definition);
+    return block;
+  }));
+  dictionaryExamples.replaceChildren(...result.examples.slice(0, 2).map((example) => {
+    const item = document.createElement("li");
+    item.textContent = example;
+    return item;
+  }));
+  dictionaryExamplesSection.hidden = result.examples.length === 0;
+  dictionarySource.href = result.sourceUrl || "https://en.wiktionary.org/";
+  dictionarySource.textContent = result.attribution || "FreeDictionaryAPI.com · Wiktionary · CC BY-SA";
+  dictionarySource.hidden = false;
+  showDictionaryPanel(rect);
+}
+
+function showDictionaryPanel(rect) {
+  if (!rect) return;
+  dictionaryPanel.style.display = "block";
+  dictionaryPanel.style.visibility = "hidden";
+  window.requestAnimationFrame(() => {
+    const panelRect = dictionaryPanel.getBoundingClientRect();
+    const left = Math.min(window.innerWidth - panelRect.width - 8, Math.max(8, rect.left));
+    const below = rect.bottom + 10;
+    const above = rect.top - panelRect.height - 10;
+    const top = below + panelRect.height <= window.innerHeight - 8 ? below : Math.max(8, above);
+    dictionaryPanel.style.left = `${left}px`;
+    dictionaryPanel.style.top = `${top}px`;
+    dictionaryPanel.style.visibility = "visible";
+  });
+}
+
+function hideDictionaryPanel() {
+  window.clearTimeout(dictionaryTimer);
+  dictionaryRequestId += 1;
+  if (dictionaryPanel) dictionaryPanel.style.display = "none";
 }
 
 function processCurrentSelection() {

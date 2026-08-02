@@ -21,6 +21,11 @@ Return strict JSON only with this shape:
 }`;
 
 const MAX_WORD_LENGTH = 80;
+const DICTIONARY_API_BASE = "https://freedictionaryapi.com/api/v1";
+const DICTIONARY_TIMEOUT_MS = 4500;
+const DICTIONARY_CACHE_KEY = "dictionaryCacheV1";
+const DICTIONARY_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const DICTIONARY_CACHE_LIMIT = 300;
 
 const DEFAULT_SETTINGS = {
   activeProfileId: "openrouter-default",
@@ -32,6 +37,7 @@ const DEFAULT_SETTINGS = {
   defaultTags: "ai-generated selected-word",
   autoCreateOnSelection: true,
   showFloatingButton: true,
+  showDictionaryPopup: true,
   promptTemplate: DEFAULT_PROMPT,
   llmTimeoutSeconds: 45,
   ankiTimeoutSeconds: 8,
@@ -101,6 +107,13 @@ chrome.commands.onCommand.addListener(async (command) => {
 });
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message?.type === "lookup-dictionary-word") {
+    lookupDictionaryWord(message.word, message.language)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: toDictionaryUserMessage(error) }));
+    return true;
+  }
+
   if (message?.type === "process-selection") {
     processSelection({
       word: message.word,
@@ -205,6 +218,172 @@ function normalizeContext(value) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 1200);
+}
+
+async function lookupDictionaryWord(inputWord, inputLanguage) {
+  const word = normalizeSelection(inputWord);
+  if (!word) throw new Error("Выделите ровно одно слово.");
+  const language = normalizeDictionaryLanguage(inputLanguage);
+  const cacheId = `${language}:${word.toLocaleLowerCase()}`;
+  const cached = await getCachedDictionaryEntry(cacheId).catch((error) => {
+    console.warn("Could not read the dictionary cache", error);
+    return null;
+  });
+  if (cached) return cached;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DICTIONARY_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(`${DICTIONARY_API_BASE}/entries/${encodeURIComponent(language)}/${encodeURIComponent(word)}`, {
+      headers: { "Accept": "application/json" },
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("Словарь отвечает слишком долго.");
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (response.status === 404) throw new Error(`Слово «${word}» не найдено в словаре.`);
+  if (response.status === 429) throw new Error("Лимит быстрого словаря временно исчерпан.");
+  if (!response.ok) throw new Error(`Словарь временно недоступен (${response.status}).`);
+
+  const result = normalizeDictionaryEntry(await response.json(), word, language);
+  if (!result.meanings.length) throw new Error(`Для слова «${word}» не найдено короткое определение.`);
+  cacheDictionaryEntry(cacheId, result).catch((error) => {
+    console.warn("Could not update the dictionary cache", error);
+  });
+  return result;
+}
+
+function normalizeDictionaryEntry(payload, fallbackWord, language) {
+  const candidates = [];
+  const pronunciations = [];
+  for (const [entryIndex, entry] of (Array.isArray(payload?.entries) ? payload.entries : []).entries()) {
+    for (const pronunciation of Array.isArray(entry?.pronunciations) ? entry.pronunciations : []) {
+      const text = normalizeDictionaryText(pronunciation?.text);
+      if (text && !pronunciations.includes(text)) pronunciations.push(text);
+    }
+    collectDictionarySenses(entry?.senses, {
+      partOfSpeech: normalizeDictionaryText(entry?.partOfSpeech),
+      entryIndex,
+      candidates
+    });
+  }
+
+  const meanings = candidates
+    .filter((item) => item.definition)
+    .sort((left, right) => scoreDictionarySense(left) - scoreDictionarySense(right))
+    .filter((item, index, all) => (
+      all.findIndex((candidate) => candidate.definition.toLocaleLowerCase() === item.definition.toLocaleLowerCase()) === index
+    ))
+    .slice(0, 2)
+    .map(({ partOfSpeech, definition }) => ({ partOfSpeech, definition }));
+
+  const selectedDefinitions = new Set(meanings.map((item) => item.definition));
+  const examples = candidates
+    .sort((left, right) => (
+      Number(selectedDefinitions.has(right.definition)) - Number(selectedDefinitions.has(left.definition))
+      || scoreDictionarySense(left) - scoreDictionarySense(right)
+    ))
+    .flatMap((item) => item.examples)
+    .filter((example, index, all) => all.indexOf(example) === index)
+    .slice(0, 2);
+
+  return {
+    word: normalizeDictionaryText(payload?.word) || fallbackWord,
+    language,
+    pronunciation: pronunciations[0] || "",
+    meanings,
+    examples,
+    sourceUrl: safeDictionarySourceUrl(payload?.source?.url),
+    attribution: "FreeDictionaryAPI.com · Wiktionary · CC BY-SA"
+  };
+}
+
+function collectDictionarySenses(senses, state, depth = 0) {
+  if (!Array.isArray(senses) || depth > 2) return;
+  for (const [senseIndex, sense] of senses.entries()) {
+    const definition = normalizeDictionaryText(sense?.definition);
+    if (definition) {
+      state.candidates.push({
+        partOfSpeech: state.partOfSpeech,
+        definition,
+        examples: (Array.isArray(sense?.examples) ? sense.examples : [])
+          .map(normalizeDictionaryText)
+          .filter(Boolean),
+        tags: (Array.isArray(sense?.tags) ? sense.tags : [])
+          .map((tag) => normalizeDictionaryText(tag).toLowerCase()),
+        order: state.entryIndex * 20 + senseIndex,
+        depth
+      });
+    }
+    collectDictionarySenses(sense?.subsenses, state, depth + 1);
+  }
+}
+
+function scoreDictionarySense(sense) {
+  const wordCount = sense.definition.split(/\s+/u).length;
+  const lengthPenalty = wordCount <= 18 ? wordCount : 18 + (wordCount - 18) * 3;
+  const uncommonPenalty = sense.tags.some((tag) => /archaic|obsolete|rare|dated|historical/i.test(tag)) ? 120 : 0;
+  return sense.order * 4 + sense.depth * 10 + lengthPenalty + uncommonPenalty;
+}
+
+function normalizeDictionaryText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 500);
+}
+
+function normalizeDictionaryLanguage(value) {
+  const aliases = {
+    english: "en",
+    german: "de",
+    french: "fr",
+    spanish: "es",
+    italian: "it",
+    portuguese: "pt",
+    russian: "ru",
+    japanese: "ja"
+  };
+  const normalized = String(value || "en").trim().toLowerCase();
+  if (aliases[normalized]) return aliases[normalized];
+  return /^[a-z]{2,3}(?:-[a-z0-9]+)?$/i.test(normalized) ? normalized : "en";
+}
+
+function safeDictionarySourceUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" ? url.href : "https://en.wiktionary.org/";
+  } catch {
+    return "https://en.wiktionary.org/";
+  }
+}
+
+async function getCachedDictionaryEntry(cacheId) {
+  const stored = await chrome.storage.local.get(DICTIONARY_CACHE_KEY);
+  const entry = stored[DICTIONARY_CACHE_KEY]?.[cacheId];
+  if (!entry || entry.expiresAt <= Date.now()) return null;
+  return entry.value;
+}
+
+async function cacheDictionaryEntry(cacheId, value) {
+  const stored = await chrome.storage.local.get(DICTIONARY_CACHE_KEY);
+  const cache = stored[DICTIONARY_CACHE_KEY] && typeof stored[DICTIONARY_CACHE_KEY] === "object"
+    ? stored[DICTIONARY_CACHE_KEY]
+    : {};
+  cache[cacheId] = { value, expiresAt: Date.now() + DICTIONARY_CACHE_TTL_MS };
+  const trimmedEntries = Object.entries(cache)
+    .filter(([, entry]) => entry?.expiresAt > Date.now())
+    .sort((left, right) => right[1].expiresAt - left[1].expiresAt)
+    .slice(0, DICTIONARY_CACHE_LIMIT);
+  await chrome.storage.local.set({ [DICTIONARY_CACHE_KEY]: Object.fromEntries(trimmedEntries) });
+}
+
+function toDictionaryUserMessage(error) {
+  const message = String(error?.message || error || "Словарь временно недоступен.");
+  if (/Failed to fetch/i.test(message)) return "Не удалось подключиться к быстрому словарю.";
+  return message;
 }
 
 async function testLlmProfile(profileInput, settingsInput, timeoutMs) {

@@ -1,6 +1,6 @@
 {
   "name": "anki-ai-card-gen",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Browser extension that creates Anki cards from selected words.",
   "license": "UNLICENSED",
