@@ -1,0 +1,5 @@
+{
+  "extensionName": { "message": "Anki AI Card Gen" },
+  "extensionDescription": { "message": "Создание карточек Anki из выделенных слов в Chrome и Microsoft Edge через LLM и AnkiConnect." },
+  "commandCreateCard": { "message": "Создать карточку Anki из текущего выделения" }
+}

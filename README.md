@@ -20,9 +20,32 @@ Browser extension for Google Chrome and Microsoft Edge. Select exactly one word 
 - Optional AES-GCM encryption for API keys with a master password.
 - Automatic settings saving; there is no separate Save button.
 - Configurable `Base URL`, model, and prompt.
+- Provider presets for OpenRouter, OpenAI, Groq, Together AI, DeepSeek, Mistral AI, Google Gemini, local Ollama, and custom OpenAI-compatible endpoints.
+- Live model list loading from providers that expose the OpenAI-compatible `/models` endpoint.
 - Configurable Anki deck, note type, `Front` and `Back` fields, and tags.
+- Live Anki dropdown suggestions for decks, note types, and fields.
 - Configurable LLM and AnkiConnect timeouts.
+- Russian and English settings/popup localization with browser-language auto detection.
+- Per-site blocklist and reverse allowlist modes, including a quick current-site toggle in the extension popup.
 - Works in Chromium-based Microsoft Edge as an unpacked extension.
+
+## Screenshots
+
+### Website → card front → card back
+
+| 1. Select a word on a website | 2. Card front | 3. Card back |
+| --- | --- | --- |
+| ![Select a word and open Anki AI Card Gen](content/Screenshot_3.png) | ![Generated Anki card front](content/Screenshot_2.png) | ![Generated Anki card back](content/Screenshot_1.png) |
+
+### Settings
+
+#### LLM provider and API key profiles
+
+![LLM provider, model and protected API key settings](content/Screenshot_4.png)
+
+#### Card layout and selection behavior
+
+![Card Builder and selection behavior settings](content/Screenshot_5.png)
 
 ## Install in Microsoft Edge
 
@@ -59,6 +82,8 @@ You can add multiple API key profiles and switch between them. For OpenAI-compat
 ```text
 https://api.openai.com/v1
 ```
+
+The provider selector fills a compatible base URL and a practical default model. Existing custom profiles continue to work and are migrated by detecting their saved base URL. Use `Load models` to query the active provider instead of relying on a hard-coded model list. Ollama can be used locally without an API key.
 
 The extension appends `/chat/completions` automatically when the full endpoint is not provided.
 
@@ -128,6 +153,17 @@ Use Check Anki settings before generating cards. The extension validates that:
 - The configured `Front` and `Back` fields exist on that note type.
 
 The extension checks Anki before calling the LLM, so a broken Anki setup will not spend API tokens.
+
+Use `Load lists from Anki` while Anki is open to populate dropdown suggestions for decks, note types, and fields. Selecting another note type refreshes its field suggestions. Manually typed values are still supported for unusual Anki setups.
+
+## Site access
+
+Site rules support two modes:
+
+- Blocklist: the extension works everywhere except matching sites.
+- Allowlist: the extension works only on matching sites.
+
+Add one rule per line. `example.com` includes its subdomains, while `example.com/private/*` limits a rule to a path. Rules are enforced by both the page script and the background worker, including keyboard shortcuts, the context menu, the quick dictionary, and card creation. The extension popup can add or remove the current hostname from the active rule mode.
 
 ## Edge Notes
 

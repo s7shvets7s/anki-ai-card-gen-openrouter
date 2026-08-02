@@ -1,4 +1,4 @@
-importScripts("api-vault.js");
+importScripts("providers.js", "site-access.js", "api-vault.js");
 
 const DEFAULT_PROMPT = `Create an Anki card for exactly one selected word.
 
@@ -29,6 +29,7 @@ const DICTIONARY_CACHE_LIMIT = 300;
 
 const DEFAULT_SETTINGS = {
   activeProfileId: "openrouter-default",
+  appLanguage: "auto",
   deckName: "Default",
   noteType: "Basic",
   frontField: "Front",
@@ -48,12 +49,15 @@ const DEFAULT_SETTINGS = {
   includeContextInCard: true,
   cardLayoutMode: "builder",
   frontTemplateFields: ["term", "reading"],
-  backTemplateFields: ["translation", "definition", "examples", "context", "mnemonic", "source"]
+  backTemplateFields: ["translation", "definition", "examples", "context", "mnemonic", "source"],
+  siteAccessMode: "blocklist",
+  siteRules: ""
 };
 
 const DEFAULT_PROFILE = {
   id: "openrouter-default",
   name: "OpenRouter",
+  provider: "openrouter",
   baseUrl: "https://openrouter.ai/api/v1",
   apiKey: "",
   model: "openai/gpt-4o-mini"
@@ -64,7 +68,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: "create-anki-card",
-      title: "Create Anki card: \"%s\"",
+      title: chrome.i18n.getUILanguage().toLowerCase().startsWith("ru") ? "Создать карточку Anki: \"%s\"" : "Create Anki card: \"%s\"",
       contexts: ["selection"]
     });
   });
@@ -88,6 +92,10 @@ chrome.commands.onCommand.addListener(async (command) => {
       notifyTab(tab.id, { type: "anki-card-error", error: "The extension cannot read this page. Reload the tab or use a regular web page." });
       return;
     }
+    if (response?.blocked) {
+      notifyTab(tab.id, { type: "anki-card-error", error: "The extension is disabled on this site by your site access rules." });
+      return;
+    }
     if (!response?.word) {
       notifyTab(tab.id, { type: "anki-card-error", error: "Select exactly one word. Sentences and multi-word phrases are captured only as context." });
       return;
@@ -108,7 +116,9 @@ chrome.commands.onCommand.addListener(async (command) => {
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "lookup-dictionary-word") {
-    lookupDictionaryWord(message.word, message.language)
+    getSettings()
+      .then((settings) => assertSiteAllowed(sender.tab?.url || message.sourceUrl || "", settings))
+      .then(() => lookupDictionaryWord(message.word, message.language))
       .then((result) => sendResponse({ ok: true, result }))
       .catch((error) => sendResponse({ ok: false, error: toDictionaryUserMessage(error) }));
     return true;
@@ -136,10 +146,34 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "get-llm-models") {
+    const timeoutMs = secondsToMs(message.timeoutSeconds, DEFAULT_SETTINGS.llmTimeoutSeconds);
+    getLlmModels(message.profile, timeoutMs)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: toUserMessage(error) }));
+    return true;
+  }
+
   if (message?.type === "test-anki") {
     const timeoutMs = secondsToMs(message.settings?.ankiTimeoutSeconds, DEFAULT_SETTINGS.ankiTimeoutSeconds);
     validateAnkiTarget({ ...DEFAULT_SETTINGS, ...message.settings }, timeoutMs)
       .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: toUserMessage(error) }));
+    return true;
+  }
+
+  if (message?.type === "get-anki-metadata") {
+    const timeoutMs = secondsToMs(message.timeoutSeconds, DEFAULT_SETTINGS.ankiTimeoutSeconds);
+    getAnkiMetadata(message.noteType, timeoutMs)
+      .then((result) => sendResponse({ ok: true, result }))
+      .catch((error) => sendResponse({ ok: false, error: toUserMessage(error) }));
+    return true;
+  }
+
+  if (message?.type === "get-anki-fields") {
+    const timeoutMs = secondsToMs(message.timeoutSeconds, DEFAULT_SETTINGS.ankiTimeoutSeconds);
+    callAnki("modelFieldNames", { modelName: String(message.noteType || "").trim() }, timeoutMs)
+      .then((fields) => sendResponse({ ok: true, result: { fields } }))
       .catch((error) => sendResponse({ ok: false, error: toUserMessage(error) }));
     return true;
   }
@@ -168,14 +202,18 @@ async function ensureDefaults() {
 }
 
 async function getConfig() {
+  const settings = await getSettings();
+  const apiProfiles = await ApiVault.loadProfiles([DEFAULT_PROFILE]);
+  const profile = apiProfiles.find((item) => item.id === settings.activeProfileId) || apiProfiles[0];
+  return { settings, profile: normalizeProfile(profile) };
+}
+
+async function getSettings() {
   await ensureDefaults();
-  const settings = {
+  return {
     ...DEFAULT_SETTINGS,
     ...(await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS)))
   };
-  const apiProfiles = await ApiVault.loadProfiles([DEFAULT_PROFILE]);
-  const profile = apiProfiles.find((item) => item.id === settings.activeProfileId) || apiProfiles[0];
-  return { settings, profile: { ...DEFAULT_PROFILE, ...profile } };
 }
 
 async function processSelection(input) {
@@ -184,6 +222,7 @@ async function processSelection(input) {
   if (!word) throw new Error("Select exactly one word first. Sentences and multi-word phrases are used only as context.");
 
   const { settings, profile } = await getConfig();
+  assertSiteAllowed(input.sourceUrl || "", settings);
   validateProfileShape(profile);
 
   const llmTimeoutMs = secondsToMs(settings.llmTimeoutSeconds, DEFAULT_SETTINGS.llmTimeoutSeconds);
@@ -387,7 +426,7 @@ function toDictionaryUserMessage(error) {
 }
 
 async function testLlmProfile(profileInput, settingsInput, timeoutMs) {
-  const profile = { ...DEFAULT_PROFILE, ...profileInput };
+  const profile = normalizeProfile(profileInput);
   const settings = { ...DEFAULT_SETTINGS, ...settingsInput };
   validateProfileShape(profile);
   const startedAt = Date.now();
@@ -403,6 +442,23 @@ async function testLlmProfile(profileInput, settingsInput, timeoutMs) {
     elapsedMs: Date.now() - startedAt,
     sample: `${card.term}: ${card.translation || card.definition}`.slice(0, 120)
   };
+}
+
+async function getLlmModels(profileInput, timeoutMs) {
+  const profile = normalizeProfile(profileInput);
+  validateProfileShape(profile);
+  const response = await fetchWithTimeout(resolveModelsEndpoint(profile.baseUrl), {
+    method: "GET",
+    headers: buildLlmHeaders(profile)
+  }, timeoutMs, "LLM model list");
+  await assertLlmResponseOk(response);
+  const payload = await response.json();
+  const models = (Array.isArray(payload?.data) ? payload.data : [])
+    .map((model) => String(model?.id || "").trim())
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+  if (!models.length) throw new Error("The provider returned an empty model list.");
+  return { models };
 }
 
 async function generateCard({ word, context, settings, profile, timeoutMs }) {
@@ -469,9 +525,9 @@ function buildCardGenerationInstruction(prompt) {
 
 function buildLlmHeaders(profile) {
   const headers = {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${profile.apiKey}`
+    "Content-Type": "application/json"
   };
+  if (profile.apiKey?.trim()) headers.Authorization = `Bearer ${profile.apiKey.trim()}`;
   if (isOpenRouterProfile(profile)) {
     headers["HTTP-Referer"] = "https://github.com/local/anki-ai-card-gen-openrouter";
     headers["X-Title"] = "Anki AI Card Gen";
@@ -504,7 +560,8 @@ async function assertLlmResponseOk(response) {
 }
 
 function validateProfileShape(profile) {
-  if (!profile?.apiKey?.trim()) {
+  const providerId = profile?.provider || LlmProviders.detect(profile?.baseUrl);
+  if (LlmProviders.get(providerId).keyRequired && !profile?.apiKey?.trim()) {
     throw new Error("Add an LLM API key in the extension options first.");
   }
   if (!profile?.model?.trim()) {
@@ -518,9 +575,29 @@ function validateProfileShape(profile) {
   }
 }
 
+function normalizeProfile(profileInput) {
+  const profile = { ...DEFAULT_PROFILE, ...profileInput };
+  if (!profileInput?.provider) profile.provider = LlmProviders.detect(profile.baseUrl);
+  return profile;
+}
+
+function assertSiteAllowed(url, settings) {
+  if (!url || !/^https?:/i.test(url)) return;
+  if (!SiteAccess.isAllowed(url, settings.siteAccessMode, settings.siteRules)) {
+    throw new Error("The extension is disabled on this site by your site access rules.");
+  }
+}
+
 function resolveChatEndpoint(baseUrl) {
   const cleanBase = String(baseUrl || DEFAULT_PROFILE.baseUrl).replace(/\/+$/, "");
   return cleanBase.endsWith("/chat/completions") ? cleanBase : `${cleanBase}/chat/completions`;
+}
+
+function resolveModelsEndpoint(baseUrl) {
+  const cleanBase = String(baseUrl || DEFAULT_PROFILE.baseUrl).replace(/\/+$/, "");
+  return cleanBase.endsWith("/chat/completions")
+    ? `${cleanBase.slice(0, -"/chat/completions".length)}/models`
+    : `${cleanBase}/models`;
 }
 
 function fillTemplate(template, values) {
@@ -618,6 +695,25 @@ async function validateAnkiTarget(settings, timeoutMs) {
     version,
     deckName: settings.deckName,
     noteType: settings.noteType,
+    fields
+  };
+}
+
+async function getAnkiMetadata(noteType, timeoutMs) {
+  const [version, decks, noteTypes] = await Promise.all([
+    callAnki("version", {}, timeoutMs),
+    callAnki("deckNames", {}, timeoutMs),
+    callAnki("modelNames", {}, timeoutMs)
+  ]);
+  const selectedType = noteTypes.includes(noteType) ? noteType : "";
+  const fields = selectedType
+    ? await callAnki("modelFieldNames", { modelName: selectedType }, timeoutMs)
+    : [];
+  return {
+    version,
+    decks: [...decks].sort((a, b) => a.localeCompare(b)),
+    noteTypes: [...noteTypes].sort((a, b) => a.localeCompare(b)),
+    selectedType,
     fields
   };
 }

@@ -1,6 +1,7 @@
 const DEFAULT_PROFILE = {
   id: "openrouter-default",
   name: "OpenRouter",
+  provider: "openrouter",
   baseUrl: "https://openrouter.ai/api/v1",
   apiKey: "",
   model: "openai/gpt-4o-mini"
@@ -8,6 +9,7 @@ const DEFAULT_PROFILE = {
 
 const DEFAULT_SETTINGS = {
   activeProfileId: "openrouter-default",
+  appLanguage: "auto",
   deckName: "Default",
   noteType: "Basic",
   frontField: "Front",
@@ -27,16 +29,21 @@ const DEFAULT_SETTINGS = {
   includeContextInCard: true,
   cardLayoutMode: "builder",
   frontTemplateFields: ["term", "reading"],
-  backTemplateFields: ["translation", "definition", "examples", "context", "mnemonic", "source"]
+  backTemplateFields: ["translation", "definition", "examples", "context", "mnemonic", "source"],
+  siteAccessMode: "blocklist",
+  siteRules: ""
 };
 
 const AUTOSAVE_DELAY_MS = 650;
 
 const fields = {
+  appLanguage: document.getElementById("appLanguage"),
   profileSelect: document.getElementById("profileSelect"),
   profileName: document.getElementById("profileName"),
+  provider: document.getElementById("provider"),
   baseUrl: document.getElementById("baseUrl"),
   model: document.getElementById("model"),
+  modelSuggestions: document.getElementById("modelSuggestions"),
   apiKey: document.getElementById("apiKey"),
   llmTimeoutSeconds: document.getElementById("llmTimeoutSeconds"),
   ankiTimeoutSeconds: document.getElementById("ankiTimeoutSeconds"),
@@ -45,6 +52,10 @@ const fields = {
   frontField: document.getElementById("frontField"),
   backField: document.getElementById("backField"),
   defaultTags: document.getElementById("defaultTags"),
+  deckSuggestions: document.getElementById("deckSuggestions"),
+  noteTypeSuggestions: document.getElementById("noteTypeSuggestions"),
+  ankiFieldSuggestions: document.getElementById("ankiFieldSuggestions"),
+  ankiMetadataStatus: document.getElementById("ankiMetadataStatus"),
   autoCreateOnSelection: document.getElementById("autoCreateOnSelection"),
   showFloatingButton: document.getElementById("showFloatingButton"),
   showDictionaryPopup: document.getElementById("showDictionaryPopup"),
@@ -58,6 +69,7 @@ const fields = {
   proCardSection: document.getElementById("proCardSection"),
   language: document.getElementById("language"),
   promptTemplate: document.getElementById("promptTemplate"),
+  siteRules: document.getElementById("siteRules"),
   status: document.getElementById("status"),
   autosaveState: document.getElementById("autosaveState"),
   vaultStatus: document.getElementById("vaultStatus"),
@@ -71,7 +83,9 @@ const buttons = {
   newProfile: document.getElementById("newProfileButton"),
   deleteProfile: document.getElementById("deleteProfileButton"),
   testLlm: document.getElementById("testLlmButton"),
+  loadModels: document.getElementById("loadModelsButton"),
   testAnki: document.getElementById("testAnkiButton"),
+  refreshAnki: document.getElementById("refreshAnkiButton"),
   recordShortcut: document.getElementById("recordShortcutButton"),
   enableVault: document.getElementById("enableVaultButton"),
   unlockVault: document.getElementById("unlockVaultButton"),
@@ -84,18 +98,24 @@ let isRecordingShortcut = false;
 let isLoaded = false;
 let autosaveTimer = 0;
 let vaultState = { enabled: false, locked: false, hasLegacyProfiles: false };
+let i18n = ExtensionI18n.create("auto");
 
 document.addEventListener("DOMContentLoaded", load);
 buttons.newProfile.addEventListener("click", addProfile);
 buttons.deleteProfile.addEventListener("click", deleteProfile);
 buttons.testLlm.addEventListener("click", testLlm);
+buttons.loadModels.addEventListener("click", loadModels);
 buttons.testAnki.addEventListener("click", testAnki);
+buttons.refreshAnki.addEventListener("click", () => refreshAnkiMetadata());
 buttons.recordShortcut.addEventListener("click", startShortcutRecording);
 buttons.enableVault.addEventListener("click", enableVault);
 buttons.unlockVault.addEventListener("click", unlockVault);
 buttons.lockVault.addEventListener("click", lockVault);
 fields.contextWordsEachSide.addEventListener("input", updateContextControls);
 fields.contextCaptureMode.addEventListener("change", updateContextControls);
+fields.appLanguage.addEventListener("change", updateInterfaceLanguage);
+fields.provider.addEventListener("change", applyProviderPreset);
+fields.noteType.addEventListener("change", refreshAnkiFields);
 for (const input of document.querySelectorAll("input[name='cardLayoutMode']")) {
   input.addEventListener("change", updateCardModeControls);
 }
@@ -128,7 +148,8 @@ async function load() {
 
   render();
   isLoaded = true;
-  setAutosaveState(vaultState.locked ? "Ключи заблокированы" : "Все изменения сохранены");
+  setAutosaveState(vaultState.locked ? localize("Ключи заблокированы", "Keys locked") : localize("Все изменения сохранены", "All changes saved"));
+  refreshAnkiMetadata({ silent: true }).catch(() => {});
 }
 
 function getDefaults() {
@@ -137,6 +158,10 @@ function getDefaults() {
 }
 
 function render() {
+  i18n.setLocale(settings.appLanguage || "auto");
+  fields.appLanguage.value = settings.appLanguage || "auto";
+  renderProviderSelect();
+  i18n.apply(document);
   renderProfileSelect();
   renderProfile();
   fields.deckName.value = settings.deckName;
@@ -144,6 +169,8 @@ function render() {
   fields.frontField.value = settings.frontField;
   fields.backField.value = settings.backField;
   fields.defaultTags.value = settings.defaultTags;
+  setRadioValue("siteAccessMode", settings.siteAccessMode === "allowlist" ? "allowlist" : "blocklist");
+  fields.siteRules.value = settings.siteRules || "";
   fields.autoCreateOnSelection.checked = Boolean(settings.autoCreateOnSelection);
   fields.showFloatingButton.checked = Boolean(settings.showFloatingButton);
   fields.showDictionaryPopup.checked = Boolean(settings.showDictionaryPopup);
@@ -168,7 +195,7 @@ function renderProfileSelect() {
   fields.profileSelect.innerHTML = "";
   if (!apiProfiles.length) {
     const option = document.createElement("option");
-    option.textContent = "Хранилище заблокировано";
+    option.textContent = localize("Хранилище заблокировано", "Vault locked");
     option.value = "";
     fields.profileSelect.appendChild(option);
     return;
@@ -186,15 +213,54 @@ function renderProfile() {
   const profile = getActiveProfile();
   if (!profile) {
     fields.profileName.value = "";
+    fields.provider.value = "custom";
     fields.baseUrl.value = "";
     fields.model.value = "";
     fields.apiKey.value = "";
     return;
   }
+  profile.provider = profile.provider || LlmProviders.detect(profile.baseUrl);
   fields.profileName.value = profile.name || "";
+  fields.provider.value = profile.provider;
   fields.baseUrl.value = profile.baseUrl || "";
   fields.model.value = profile.model || "";
   fields.apiKey.value = profile.apiKey || "";
+  renderModelSuggestions(profile.provider);
+}
+
+function renderProviderSelect() {
+  const selected = fields.provider.value;
+  fields.provider.replaceChildren(...LlmProviders.providers.map((provider) => {
+    const option = document.createElement("option");
+    option.value = provider.id;
+    option.textContent = provider.name;
+    return option;
+  }));
+  if (selected) fields.provider.value = selected;
+}
+
+function renderModelSuggestions(providerId) {
+  const provider = LlmProviders.get(providerId);
+  const models = Array.isArray(provider.models) ? provider.models : [provider.model].filter(Boolean);
+  fields.modelSuggestions?.replaceChildren(...models.map((model) => {
+    const option = document.createElement("option");
+    option.value = model;
+    return option;
+  }));
+}
+
+function applyProviderPreset() {
+  const profile = getActiveProfile();
+  if (!profile) return;
+  const previousProvider = LlmProviders.get(profile.provider || LlmProviders.detect(profile.baseUrl));
+  const provider = LlmProviders.get(fields.provider.value);
+  const canReplaceUrl = !fields.baseUrl.value.trim() || fields.baseUrl.value.trim() === previousProvider.baseUrl;
+  const canReplaceModel = !fields.model.value.trim() || fields.model.value.trim() === previousProvider.model;
+  profile.provider = provider.id;
+  if (provider.id !== "custom" && canReplaceUrl) fields.baseUrl.value = provider.baseUrl;
+  if (provider.id !== "custom" && canReplaceModel) fields.model.value = provider.model;
+  renderModelSuggestions(provider.id);
+  scheduleAutosave();
 }
 
 function getActiveProfile() {
@@ -205,6 +271,7 @@ function persistCurrentProfileInMemory() {
   const profile = getActiveProfile();
   if (!profile) return;
   profile.name = fields.profileName.value.trim() || "Untitled profile";
+  profile.provider = fields.provider.value || LlmProviders.detect(fields.baseUrl.value);
   profile.baseUrl = fields.baseUrl.value.trim();
   profile.model = fields.model.value.trim();
   profile.apiKey = fields.apiKey.value.trim();
@@ -215,6 +282,7 @@ function readSettingsFromForm() {
   settings = {
     ...settings,
     activeProfileId: fields.profileSelect.value || settings.activeProfileId,
+    appLanguage: fields.appLanguage.value || "auto",
     deckName: fields.deckName.value.trim() || "Default",
     noteType: fields.noteType.value.trim() || "Basic",
     frontField: fields.frontField.value.trim() || "Front",
@@ -234,16 +302,18 @@ function readSettingsFromForm() {
     language: fields.language.value.trim() || "auto",
     promptTemplate: fields.promptTemplate.value.trim(),
     llmTimeoutSeconds: clampNumber(fields.llmTimeoutSeconds.value, 3, 180, 45),
-    ankiTimeoutSeconds: clampNumber(fields.ankiTimeoutSeconds.value, 3, 60, 8)
+    ankiTimeoutSeconds: clampNumber(fields.ankiTimeoutSeconds.value, 3, 60, 8),
+    siteAccessMode: getRadioValue("siteAccessMode") === "allowlist" ? "allowlist" : "blocklist",
+    siteRules: SiteAccess.parseRules(fields.siteRules.value).slice(0, 300).join("\n").slice(0, 7000)
   };
 }
 
 function startShortcutRecording() {
   if (isRecordingShortcut) return;
   isRecordingShortcut = true;
-  buttons.recordShortcut.textContent = "Нажмите...";
-  fields.customShortcut.value = "Нажмите сочетание";
-  setStatus("Нажмите сочетание клавиш. Используйте Ctrl, Alt, Shift или Cmd плюс основную клавишу.");
+  buttons.recordShortcut.textContent = localize("Нажмите...", "Press keys...");
+  fields.customShortcut.value = localize("Нажмите сочетание", "Press a shortcut");
+  setStatus(localize("Нажмите сочетание клавиш. Используйте Ctrl, Alt, Shift или Cmd плюс основную клавишу.", "Press a key combination using Ctrl, Alt, Shift, or Cmd plus a main key."));
 
   const onKeyDown = (event) => {
     event.preventDefault();
@@ -252,20 +322,20 @@ function startShortcutRecording() {
     if (event.key === "Escape") {
       stopShortcutRecording();
       fields.customShortcut.value = settings.customShortcut || "Ctrl+Shift+Y";
-      setStatus("Запись сочетания отменена.");
+      setStatus(localize("Запись сочетания отменена.", "Shortcut recording canceled."));
       return;
     }
 
     const shortcut = formatShortcut(event);
     if (!shortcut) {
-      setStatus("Добавьте хотя бы один модификатор: Ctrl, Alt, Shift или Cmd.");
+      setStatus(localize("Добавьте хотя бы один модификатор: Ctrl, Alt, Shift или Cmd.", "Add at least one modifier: Ctrl, Alt, Shift, or Cmd."));
       return;
     }
 
     fields.customShortcut.value = shortcut;
     settings.customShortcut = shortcut;
     stopShortcutRecording();
-    setStatus(`Сочетание выбрано: ${shortcut}. Настройка сохраняется автоматически.`);
+    setStatus(localize(`Сочетание выбрано: ${shortcut}. Настройка сохраняется автоматически.`, `Shortcut selected: ${shortcut}. It is saved automatically.`));
     scheduleAutosave();
   };
 
@@ -275,7 +345,7 @@ function startShortcutRecording() {
 
 function stopShortcutRecording() {
   isRecordingShortcut = false;
-  buttons.recordShortcut.textContent = "Записать";
+  buttons.recordShortcut.textContent = i18n.t("record");
   if (startShortcutRecording.cleanup) startShortcutRecording.cleanup();
 }
 
@@ -352,10 +422,10 @@ function handleAutosaveEvent(event) {
 function scheduleAutosave() {
   if (!isLoaded) return;
   window.clearTimeout(autosaveTimer);
-  setAutosaveState("Сохранение...");
+  setAutosaveState(localize("Сохранение...", "Saving..."));
   autosaveTimer = window.setTimeout(() => {
     saveNow().catch((error) => {
-      setAutosaveState("Ошибка сохранения", true);
+      setAutosaveState(localize("Ошибка сохранения", "Save failed"), true);
       setStatus(error?.message || String(error));
     });
   }, AUTOSAVE_DELAY_MS);
@@ -373,7 +443,7 @@ async function saveNow() {
     await ApiVault.saveProfiles(apiProfiles);
   }
   updateActiveProfileOption();
-  setAutosaveState(vaultState.locked ? "Настройки сохранены, ключи заблокированы" : "Все изменения сохранены");
+  setAutosaveState(vaultState.locked ? localize("Настройки сохранены, ключи заблокированы", "Settings saved, keys locked") : localize("Все изменения сохранены", "All changes saved"));
 }
 
 function addProfile() {
@@ -382,6 +452,7 @@ function addProfile() {
   apiProfiles.push({
     id,
     name: "New profile",
+    provider: "openrouter",
     baseUrl: "https://openrouter.ai/api/v1",
     apiKey: "",
     model: "openai/gpt-4o-mini"
@@ -389,13 +460,13 @@ function addProfile() {
   settings.activeProfileId = id;
   renderProfileSelect();
   renderProfile();
-  setStatus("Новый профиль создан. Изменения сохраняются автоматически.");
+  setStatus(localize("Новый профиль создан. Изменения сохраняются автоматически.", "New profile created. Changes are saved automatically."));
   scheduleAutosave();
 }
 
 async function deleteProfile() {
   if (apiProfiles.length === 1) {
-    setStatus("Нельзя удалить единственный профиль.");
+    setStatus(localize("Нельзя удалить единственный профиль.", "The only profile cannot be deleted."));
     return;
   }
   const activeId = settings.activeProfileId;
@@ -405,13 +476,13 @@ async function deleteProfile() {
   renderProfile();
   await saveNow();
   render();
-  setStatus("Профиль удален.");
+  setStatus(localize("Профиль удален.", "Profile deleted."));
 }
 
 async function testLlm() {
   await flushAutosave();
-  await withBusyButton(buttons.testLlm, "Проверяю...", async () => {
-    setStatus("Проверяю генерацию карточки через LLM...");
+  await withBusyButton(buttons.testLlm, localize("Проверяю...", "Testing..."), async () => {
+    setStatus(localize("Проверяю генерацию карточки через LLM...", "Testing card generation through the LLM..."));
     const response = await sendMessage({
       type: "test-llm-profile",
       profile: getActiveProfile(),
@@ -419,24 +490,104 @@ async function testLlm() {
       timeoutSeconds: settings.llmTimeoutSeconds
     });
     if (!response?.ok) {
-      setStatus(response?.error || "LLM генерация не ответила.");
+      setStatus(response?.error || localize("LLM генерация не ответила.", "LLM generation did not respond."));
       return;
     }
-    setStatus(`LLM генерация карточки работает. Модель: ${response.result.model}. Ответ за ${response.result.elapsedMs} мс. ${response.result.sample}`);
+    setStatus(localize(
+      `LLM генерация карточки работает. Модель: ${response.result.model}. Ответ за ${response.result.elapsedMs} мс. ${response.result.sample}`,
+      `LLM card generation works. Model: ${response.result.model}. Response in ${response.result.elapsedMs} ms. ${response.result.sample}`
+    ));
+  });
+}
+
+async function loadModels() {
+  await flushAutosave();
+  await withBusyButton(buttons.loadModels, i18n.locale === "ru" ? "Загружаю..." : "Loading...", async () => {
+    const response = await sendMessage({
+      type: "get-llm-models",
+      profile: getActiveProfile(),
+      timeoutSeconds: settings.llmTimeoutSeconds
+    });
+    if (!response?.ok) {
+      setStatus(response?.error || (i18n.locale === "ru" ? "Не удалось загрузить модели." : "Could not load models."));
+      return;
+    }
+    fillDataList(fields.modelSuggestions, response.result.models);
+    setStatus(i18n.locale === "ru"
+      ? `Загружено моделей: ${response.result.models.length}. Выберите модель в выпадающем списке.`
+      : `Loaded ${response.result.models.length} models. Choose one from the dropdown.`);
   });
 }
 
 async function testAnki() {
   await flushAutosave();
-  await withBusyButton(buttons.testAnki, "Проверяю...", async () => {
-    setStatus("Проверяю AnkiConnect, колоду, note type и поля...");
+  await withBusyButton(buttons.testAnki, localize("Проверяю...", "Testing..."), async () => {
+    setStatus(localize("Проверяю AnkiConnect, колоду, тип заметки и поля...", "Testing AnkiConnect, deck, note type, and fields..."));
     const response = await sendMessage({ type: "test-anki", settings });
     if (!response?.ok) {
-      setStatus(response?.error || "AnkiConnect не ответил.");
+      setStatus(response?.error || localize("AnkiConnect не ответил.", "AnkiConnect did not respond."));
       return;
     }
-    setStatus(`Anki готов. Версия API: ${response.result.version}. Колода: ${response.result.deckName}.`);
+    setStatus(localize(`Anki готов. Версия API: ${response.result.version}. Колода: ${response.result.deckName}.`, `Anki is ready. API version: ${response.result.version}. Deck: ${response.result.deckName}.`));
   });
+}
+
+async function refreshAnkiMetadata({ silent = false } = {}) {
+  if (!silent) await flushAutosave();
+  const response = await sendMessage({
+    type: "get-anki-metadata",
+    noteType: fields.noteType.value.trim() || settings.noteType,
+    timeoutSeconds: settings.ankiTimeoutSeconds
+  });
+  if (!response?.ok) {
+    fields.ankiMetadataStatus.textContent = silent ? "" : (response?.error || localize("AnkiConnect не ответил.", "AnkiConnect did not respond."));
+    if (!silent) setStatus(response?.error || localize("AnkiConnect не ответил.", "AnkiConnect did not respond."));
+    return;
+  }
+  fillDataList(fields.deckSuggestions, response.result.decks);
+  fillDataList(fields.noteTypeSuggestions, response.result.noteTypes);
+  fillDataList(fields.ankiFieldSuggestions, response.result.fields);
+  const localeRu = i18n.locale === "ru";
+  const summary = localeRu
+    ? `Загружено: ${response.result.decks.length} колод, ${response.result.noteTypes.length} типов заметок, ${response.result.fields.length} полей.`
+    : `Loaded ${response.result.decks.length} decks, ${response.result.noteTypes.length} note types, and ${response.result.fields.length} fields.`;
+  const warnings = [];
+  if (!response.result.decks.includes(fields.deckName.value.trim())) {
+    warnings.push(localeRu ? "Текущая колода не найдена: выберите ее из списка." : "The current deck was not found; choose one from the list.");
+  }
+  if (!response.result.noteTypes.includes(fields.noteType.value.trim())) {
+    warnings.push(localeRu ? "Текущий тип заметки не найден: выберите его из списка." : "The current note type was not found; choose one from the list.");
+  }
+  fields.ankiMetadataStatus.textContent = [summary, ...warnings].join(" ");
+}
+
+async function refreshAnkiFields() {
+  const noteType = fields.noteType.value.trim();
+  if (!noteType) return;
+  const response = await sendMessage({
+    type: "get-anki-fields",
+    noteType,
+    timeoutSeconds: settings.ankiTimeoutSeconds
+  });
+  if (!response?.ok) return;
+  fillDataList(fields.ankiFieldSuggestions, response.result.fields);
+}
+
+function fillDataList(list, values) {
+  list.replaceChildren(...(Array.isArray(values) ? values : []).map((value) => {
+    const option = document.createElement("option");
+    option.value = value;
+    return option;
+  }));
+}
+
+function updateInterfaceLanguage() {
+  settings.appLanguage = fields.appLanguage.value || "auto";
+  i18n.setLocale(settings.appLanguage);
+  i18n.apply(document);
+  renderVaultState();
+  setAutosaveState(vaultState.locked ? localize("Ключи заблокированы", "Keys locked") : localize("Все изменения сохранены", "All changes saved"));
+  scheduleAutosave();
 }
 
 async function withBusyButton(button, busyText, task) {
@@ -464,24 +615,24 @@ async function enableVault() {
   window.clearTimeout(autosaveTimer);
   const passphrase = fields.vaultPassphrase.value;
   if (passphrase !== fields.vaultPassphraseConfirm.value) {
-    setStatus("Мастер-пароли не совпадают.");
+    setStatus(localize("Мастер-пароли не совпадают.", "Master passwords do not match."));
     return;
   }
-  await withBusyButton(buttons.enableVault, "Шифрую...", async () => {
+  await withBusyButton(buttons.enableVault, localize("Шифрую...", "Encrypting..."), async () => {
     readSettingsFromForm();
     await chrome.storage.sync.set(settings);
     await ApiVault.enable(apiProfiles, passphrase);
     vaultState = await ApiVault.getState();
     clearVaultInputs();
     renderVaultState();
-    setStatus("API-ключи зашифрованы. После перезапуска браузера потребуется мастер-пароль.");
-    setAutosaveState("Ключи защищены");
+    setStatus(localize("API-ключи зашифрованы. После перезапуска браузера потребуется мастер-пароль.", "API keys encrypted. The master password will be required after a browser restart."));
+    setAutosaveState(localize("Ключи защищены", "Keys protected"));
   });
 }
 
 async function unlockVault() {
   window.clearTimeout(autosaveTimer);
-  await withBusyButton(buttons.unlockVault, "Открываю...", async () => {
+  await withBusyButton(buttons.unlockVault, localize("Открываю...", "Unlocking..."), async () => {
     apiProfiles = await ApiVault.unlock(fields.vaultPassphrase.value);
     vaultState = await ApiVault.getState();
     if (!apiProfiles.some((profile) => profile.id === settings.activeProfileId)) {
@@ -491,8 +642,8 @@ async function unlockVault() {
     renderProfileSelect();
     renderProfile();
     renderVaultState();
-    setStatus("Хранилище API-ключей разблокировано до закрытия браузера.");
-    setAutosaveState("Все изменения сохранены");
+    setStatus(localize("Хранилище API-ключей разблокировано до закрытия браузера.", "The API key vault is unlocked until the browser closes."));
+    setAutosaveState(localize("Все изменения сохранены", "All changes saved"));
   });
 }
 
@@ -504,8 +655,8 @@ async function lockVault() {
   renderProfileSelect();
   renderProfile();
   renderVaultState();
-  setStatus("Хранилище API-ключей заблокировано.");
-  setAutosaveState("Ключи заблокированы");
+  setStatus(localize("Хранилище API-ключей заблокировано.", "The API key vault is locked."));
+  setAutosaveState(localize("Ключи заблокированы", "Keys locked"));
 }
 
 function renderVaultState() {
@@ -519,16 +670,17 @@ function renderVaultState() {
   buttons.lockVault.hidden = !enabled || locked;
 
   if (!enabled) {
-    fields.vaultStatus.textContent = "Сейчас ключи находятся только в локальном хранилище браузера, но еще не зашифрованы.";
+    fields.vaultStatus.textContent = localize("Сейчас ключи находятся только в локальном хранилище браузера, но еще не зашифрованы.", "Keys are currently stored only in local browser storage and are not encrypted yet.");
   } else if (locked) {
-    fields.vaultStatus.textContent = "Зашифрованное хранилище заблокировано. Введите мастер-пароль, чтобы LLM снова был доступен.";
+    fields.vaultStatus.textContent = localize("Зашифрованное хранилище заблокировано. Введите мастер-пароль, чтобы LLM снова был доступен.", "The encrypted vault is locked. Enter the master password to use the LLM again.");
   } else {
-    fields.vaultStatus.textContent = "Ключи зашифрованы AES-GCM. Разблокировка действует до закрытия браузера.";
+    fields.vaultStatus.textContent = localize("Ключи зашифрованы AES-GCM. Разблокировка действует до закрытия браузера.", "Keys are encrypted with AES-GCM. The vault remains unlocked until the browser closes.");
   }
 
   const profileControls = [
     fields.profileSelect,
     fields.profileName,
+    fields.provider,
     fields.baseUrl,
     fields.model,
     fields.apiKey
@@ -537,6 +689,7 @@ function renderVaultState() {
   buttons.newProfile.disabled = locked;
   buttons.deleteProfile.disabled = locked;
   buttons.testLlm.disabled = locked;
+  buttons.loadModels.disabled = locked;
 }
 
 function clearVaultInputs() {
@@ -579,4 +732,8 @@ function setStatus(message) {
   setStatus.timer = window.setTimeout(() => {
     fields.status.textContent = "";
   }, 9000);
+}
+
+function localize(ru, en) {
+  return i18n.locale === "ru" ? ru : en;
 }

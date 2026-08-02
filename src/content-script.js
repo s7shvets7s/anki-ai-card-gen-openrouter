@@ -31,7 +31,9 @@ let settings = {
   contextCaptureMode: "words",
   contextWordsEachSide: 8,
   llmTimeoutSeconds: 45,
-  ankiTimeoutSeconds: 8
+  ankiTimeoutSeconds: 8,
+  siteAccessMode: "blocklist",
+  siteRules: ""
 };
 
 init();
@@ -49,6 +51,10 @@ function init() {
       settings[key] = change.newValue;
     }
     if (changes.showDictionaryPopup && !settings.showDictionaryPopup) hideDictionaryPanel();
+    if (changes.siteAccessMode || changes.siteRules) {
+      hideSelectionUi();
+      clearTimeout(autoTimer);
+    }
   });
 }
 
@@ -61,7 +67,9 @@ function loadSettings() {
     "contextCaptureMode",
     "contextWordsEachSide",
     "llmTimeoutSeconds",
-    "ankiTimeoutSeconds"
+    "ankiTimeoutSeconds",
+    "siteAccessMode",
+    "siteRules"
   ], (values) => {
     settings = { ...settings, ...values };
   });
@@ -273,6 +281,10 @@ function createUi() {
 }
 
 function onSelectionChange() {
+  if (!isCurrentSiteAllowed()) {
+    hideSelectionUi();
+    return;
+  }
   clearTimeout(autoTimer);
   window.setTimeout(() => {
     const selection = readSelection();
@@ -295,6 +307,7 @@ function onSelectionChange() {
 }
 
 function onKeyDown(event) {
+  if (!isCurrentSiteAllowed()) return;
   if (!matchesShortcut(event, settings.customShortcut)) return;
 
   const selection = readSelection();
@@ -444,6 +457,7 @@ function hideSelectionUi() {
 }
 
 function scheduleDictionaryLookup(selection) {
+  if (!isCurrentSiteAllowed()) return;
   window.clearTimeout(dictionaryTimer);
   const requestId = ++dictionaryRequestId;
   showDictionaryLoading(selection.word, selection.rect);
@@ -545,6 +559,10 @@ function hideDictionaryPanel() {
 }
 
 function processCurrentSelection() {
+  if (!isCurrentSiteAllowed()) {
+    showToast("The extension is disabled on this site.", "info");
+    return;
+  }
   const selection = readSelection();
   if (!selection.word) {
     showToast("Select exactly one word. Sentences are captured only as context.", "error");
@@ -611,6 +629,10 @@ function normalizeContextText(value) {
 }
 
 function processSelection(word, context) {
+  if (!isCurrentSiteAllowed()) {
+    showToast("The extension is disabled on this site.", "info");
+    return;
+  }
   if (isProcessing) {
     showToast("A card request is already running. Wait for it to finish.", "info", 4200);
     return;
@@ -659,13 +681,25 @@ function getUiRequestTimeoutMs() {
   return llmMs + ankiMs * 6 + UI_TIMEOUT_GRACE_MS;
 }
 
+function isCurrentSiteAllowed() {
+  return SiteAccess.isAllowed(location.href, settings.siteAccessMode, settings.siteRules);
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "read-selection") {
+    if (!isCurrentSiteAllowed()) {
+      sendResponse({ word: "", context: "", blocked: true });
+      return true;
+    }
     sendResponse(readSelection());
     return true;
   }
 
   if (message?.type === "create-card-from-current-selection") {
+    if (!isCurrentSiteAllowed()) {
+      sendResponse({ ok: false, error: "The extension is disabled on this site." });
+      return true;
+    }
     const selection = readSelection();
     if (!selection.word) {
       sendResponse({ ok: false, error: "Select exactly one word. Sentences are captured only as context." });

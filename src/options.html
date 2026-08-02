@@ -10,118 +10,135 @@
     <main>
       <header>
         <div>
-          <p class="eyebrow">Browser extension</p>
+          <p class="eyebrow" data-i18n="browserExtension">Расширение для браузера</p>
           <h1>Anki AI Card Gen</h1>
         </div>
-        <span id="autosaveState" class="autosave-state">Загрузка...</span>
+        <div class="header-controls">
+          <label class="language-control">
+            <span data-i18n="language">Язык интерфейса</span>
+            <select id="appLanguage">
+              <option value="auto" data-i18n="languageAuto">Как в браузере</option>
+              <option value="ru" data-i18n="languageRu">Русский</option>
+              <option value="en" data-i18n="languageEn">English</option>
+            </select>
+          </label>
+          <span id="autosaveState" class="autosave-state">Загрузка...</span>
+        </div>
       </header>
 
       <p id="status" role="status"></p>
 
       <section>
-        <h2>LLM API</h2>
+        <h2 data-i18n="llmApi">LLM API</h2>
         <div class="security-panel">
           <div>
-            <h3>Защита API-ключей</h3>
+            <h3 data-i18n="apiSecurity">Защита API-ключей</h3>
             <p id="vaultStatus" class="hint"></p>
           </div>
           <div id="vaultPassphraseFields" class="grid two">
             <label>
-              Мастер-пароль
+              <span data-i18n="masterPassword">Мастер-пароль</span>
               <input id="vaultPassphrase" type="password" autocomplete="current-password">
             </label>
             <label id="vaultConfirmLabel">
-              Повторите мастер-пароль
+              <span data-i18n="repeatMasterPassword">Повторите мастер-пароль</span>
               <input id="vaultPassphraseConfirm" type="password" autocomplete="new-password">
             </label>
           </div>
           <div class="row">
-            <button id="enableVaultButton" type="button" class="secondary">Зашифровать ключи</button>
-            <button id="unlockVaultButton" type="button" class="secondary" hidden>Разблокировать</button>
-            <button id="lockVaultButton" type="button" class="secondary" hidden>Заблокировать</button>
+            <button id="enableVaultButton" type="button" class="secondary" data-i18n="encryptKeys">Зашифровать ключи</button>
+            <button id="unlockVaultButton" type="button" class="secondary" data-i18n="unlock" hidden>Разблокировать</button>
+            <button id="lockVaultButton" type="button" class="secondary" data-i18n="lock" hidden>Заблокировать</button>
           </div>
         </div>
         <div class="grid two">
           <label>
-            Профиль ключа
+            <span data-i18n="keyProfile">Профиль ключа</span>
             <select id="profileSelect"></select>
           </label>
           <label>
-            Название профиля
+            <span data-i18n="profileName">Название профиля</span>
             <input id="profileName" type="text" autocomplete="off">
           </label>
         </div>
         <div class="grid two">
           <label>
-            Base URL
-            <input id="baseUrl" type="url" spellcheck="false">
+            <span data-i18n="provider">Провайдер</span>
+            <select id="provider"></select>
           </label>
           <label>
-            Model
-            <input id="model" type="text" spellcheck="false">
+            <span data-i18n="model">Модель</span>
+            <input id="model" type="text" spellcheck="false" list="modelSuggestions">
+            <datalist id="modelSuggestions"></datalist>
           </label>
         </div>
         <label>
-          API key
+          <span data-i18n="baseUrl">Base URL</span>
+          <input id="baseUrl" type="url" spellcheck="false">
+        </label>
+        <label>
+          <span data-i18n="apiKey">API-ключ</span>
           <input id="apiKey" type="password" spellcheck="false" autocomplete="off">
         </label>
         <div class="grid two">
           <label>
-            Таймаут LLM, сек.
+            <span data-i18n="llmTimeout">Таймаут LLM, сек.</span>
             <input id="llmTimeoutSeconds" type="number" min="3" max="180" step="1">
           </label>
           <label>
-            Таймаут AnkiConnect, сек.
+            <span data-i18n="ankiTimeout">Таймаут AnkiConnect, сек.</span>
             <input id="ankiTimeoutSeconds" type="number" min="3" max="60" step="1">
           </label>
         </div>
         <div class="row">
-          <button id="testLlmButton" type="button" class="secondary">Проверить генерацию LLM</button>
-          <button id="newProfileButton" type="button" class="secondary">Новый профиль</button>
-          <button id="deleteProfileButton" type="button" class="secondary danger">Удалить профиль</button>
+          <button id="testLlmButton" type="button" class="secondary" data-i18n="testLlm">Проверить генерацию LLM</button>
+          <button id="loadModelsButton" type="button" class="secondary" data-i18n="loadModels">Загрузить модели</button>
+          <button id="newProfileButton" type="button" class="secondary" data-i18n="newProfile">Новый профиль</button>
+          <button id="deleteProfileButton" type="button" class="secondary danger" data-i18n="deleteProfile">Удалить профиль</button>
         </div>
       </section>
 
       <section>
-        <h2>Anki</h2>
+        <h2 data-i18n="anki">Anki</h2>
         <div class="grid two">
           <label>
-            Deck
-            <input id="deckName" type="text" autocomplete="off">
+            <span data-i18n="deck">Колода</span>
+            <input id="deckName" type="text" autocomplete="off" list="deckSuggestions">
+            <datalist id="deckSuggestions"></datalist>
           </label>
           <label>
-            Note type
-            <input id="noteType" type="text" autocomplete="off">
+            <span data-i18n="noteType">Тип заметки</span>
+            <input id="noteType" type="text" autocomplete="off" list="noteTypeSuggestions">
+            <datalist id="noteTypeSuggestions"></datalist>
           </label>
         </div>
         <div class="grid two">
           <label>
-            Front field
-            <input id="frontField" type="text" autocomplete="off">
+            <span data-i18n="frontField">Поле Front</span>
+            <input id="frontField" type="text" autocomplete="off" list="ankiFieldSuggestions">
           </label>
           <label>
-            Back field
-            <input id="backField" type="text" autocomplete="off">
+            <span data-i18n="backField">Поле Back</span>
+            <input id="backField" type="text" autocomplete="off" list="ankiFieldSuggestions">
           </label>
+          <datalist id="ankiFieldSuggestions"></datalist>
         </div>
         <label>
-          Tags
+          <span data-i18n="tags">Теги</span>
           <input id="defaultTags" type="text" autocomplete="off">
         </label>
-        <button id="testAnkiButton" type="button" class="secondary">Проверить Anki настройки</button>
+        <div class="row">
+          <button id="refreshAnkiButton" type="button" class="secondary" data-i18n="refreshAnki">Загрузить списки из Anki</button>
+          <button id="testAnkiButton" type="button" class="secondary" data-i18n="testAnki">Проверить настройки Anki</button>
+        </div>
+        <p id="ankiMetadataStatus" class="hint"></p>
       </section>
 
       <section>
-        <h2>Режим карточки</h2>
+        <h2 data-i18n="cardMode">Режим карточки</h2>
         <div class="mode-switch">
-          <label>
-            <input name="cardLayoutMode" type="radio" value="builder">
-            Builder: чекбоксы
-          </label>
-          <label>
-            <input name="cardLayoutMode" type="radio" value="pro">
-            Pro: prompt / JSON
-          </label>
+          <label><input name="cardLayoutMode" type="radio" value="builder"><span data-i18n="builderMode">Builder: чекбоксы</span></label>
+          <label><input name="cardLayoutMode" type="radio" value="pro"><span data-i18n="proMode">Pro: prompt / JSON</span></label>
         </div>
 
         <div class="mode-panel-frame">
@@ -130,93 +147,93 @@
               <div>
                 <h3>Front</h3>
                 <div class="checks card-fields" data-side="front">
-                  <label><input type="checkbox" value="term"> Word</label>
-                  <label><input type="checkbox" value="reading"> Reading</label>
-                  <label><input type="checkbox" value="partOfSpeech"> Part of speech</label>
-                  <label><input type="checkbox" value="translation"> Translation</label>
-                  <label><input type="checkbox" value="definition"> Definition</label>
-                  <label><input type="checkbox" value="context"> Context</label>
+                  <label><input type="checkbox" value="term"><span data-i18n="word">Слово</span></label>
+                  <label><input type="checkbox" value="reading"><span data-i18n="reading">Чтение</span></label>
+                  <label><input type="checkbox" value="partOfSpeech"><span data-i18n="partOfSpeech">Часть речи</span></label>
+                  <label><input type="checkbox" value="translation"><span data-i18n="translation">Перевод</span></label>
+                  <label><input type="checkbox" value="definition"><span data-i18n="definition">Определение</span></label>
+                  <label><input type="checkbox" value="context"><span data-i18n="context">Контекст</span></label>
                 </div>
               </div>
               <div>
                 <h3>Back</h3>
                 <div class="checks card-fields" data-side="back">
-                  <label><input type="checkbox" value="term"> Word</label>
-                  <label><input type="checkbox" value="reading"> Reading</label>
-                  <label><input type="checkbox" value="partOfSpeech"> Part of speech</label>
-                  <label><input type="checkbox" value="translation"> Translation</label>
-                  <label><input type="checkbox" value="definition"> Definition</label>
-                  <label><input type="checkbox" value="examples"> Examples</label>
-                  <label><input type="checkbox" value="context"> Context</label>
-                  <label><input type="checkbox" value="mnemonic"> Mnemonic</label>
-                  <label><input type="checkbox" value="source"> Source URL</label>
+                  <label><input type="checkbox" value="term"><span data-i18n="word">Слово</span></label>
+                  <label><input type="checkbox" value="reading"><span data-i18n="reading">Чтение</span></label>
+                  <label><input type="checkbox" value="partOfSpeech"><span data-i18n="partOfSpeech">Часть речи</span></label>
+                  <label><input type="checkbox" value="translation"><span data-i18n="translation">Перевод</span></label>
+                  <label><input type="checkbox" value="definition"><span data-i18n="definition">Определение</span></label>
+                  <label><input type="checkbox" value="examples"><span data-i18n="examples">Примеры</span></label>
+                  <label><input type="checkbox" value="context"><span data-i18n="context">Контекст</span></label>
+                  <label><input type="checkbox" value="mnemonic"><span data-i18n="mnemonic">Мнемоника</span></label>
+                  <label><input type="checkbox" value="source"><span data-i18n="sourceUrl">URL источника</span></label>
                 </div>
               </div>
             </div>
-            <p class="hint">LLM все равно возвращает полный JSON, а чекбоксы решают, какие блоки попадут на Front и Back.</p>
+            <p class="hint" data-i18n="builderHint">LLM возвращает полный JSON, а чекбоксы определяют блоки Front и Back.</p>
           </div>
 
           <div id="proCardSection" class="mode-panel">
             <h3>Pro: Prompt / JSON</h3>
-            <p class="hint">Можно использовать переменные {{word}}, {{context}} и {{language}}.</p>
+            <p class="hint" data-i18n="proHint">Доступны переменные {{word}}, {{context}} и {{language}}.</p>
             <textarea id="promptTemplate" spellcheck="false"></textarea>
           </div>
         </div>
       </section>
 
       <section>
-        <h2>Поведение</h2>
+        <h2 data-i18n="behavior">Поведение</h2>
         <div class="checks">
-          <label>
-            <input id="autoCreateOnSelection" type="checkbox">
-            Автоматически создавать карточку после выделения слова
-          </label>
-          <label>
-            <input id="showFloatingButton" type="checkbox">
-            Показывать кнопку рядом с выделением
-          </label>
-          <label>
-            <input id="showDictionaryPopup" type="checkbox">
-            Показывать быстрое одноязычное определение
-          </label>
-          <label>
-            <input id="includeContextInCard" type="checkbox">
-            В Pro-режиме добавлять контекст выделения в карточку
-          </label>
-          <label>
-            <input id="suppressEdgeMiniMenu" type="checkbox">
-            Скрывать системное мини-меню Edge в PDF Reader
-          </label>
+          <label><input id="autoCreateOnSelection" type="checkbox"><span data-i18n="autoCreate">Автоматически создавать карточку после выделения слова</span></label>
+          <label><input id="showFloatingButton" type="checkbox"><span data-i18n="showButton">Показывать кнопку рядом с выделением</span></label>
+          <label><input id="showDictionaryPopup" type="checkbox"><span data-i18n="showDictionary">Показывать быстрое одноязычное определение</span></label>
+          <label><input id="includeContextInCard" type="checkbox"><span data-i18n="includeContext">В Pro-режиме добавлять контекст выделения в карточку</span></label>
+          <label><input id="suppressEdgeMiniMenu" type="checkbox"><span data-i18n="suppressEdge">Скрывать системное мини-меню Edge в PDF Reader</span></label>
         </div>
-        <p class="hint">Пилотный режим English → English работает без LLM: до двух коротких значений и до двух примеров. Во внешний словарь отправляется только выделенное слово, без контекста страницы.</p>
-        <p class="hint">Если Edge все равно показывает свое меню, отключите «Show mini menu when selecting text» в edge://settings/appearance.</p>
+        <p class="hint" data-i18n="quickDictionaryHint">Пилотный режим English → English работает без LLM: до двух коротких значений и двух примеров. Во внешний словарь отправляется только выделенное слово.</p>
+        <p class="hint" data-i18n="edgeHint">Если Edge показывает свое меню, отключите Show mini menu when selecting text в edge://settings/appearance.</p>
         <div class="grid two">
           <label>
-            Сочетание клавиш
+            <span data-i18n="shortcut">Сочетание клавиш</span>
             <div class="shortcut-row">
               <input id="customShortcut" type="text" readonly>
-              <button id="recordShortcutButton" type="button" class="secondary">Записать</button>
+              <button id="recordShortcutButton" type="button" class="secondary" data-i18n="record">Записать</button>
             </div>
           </label>
           <label>
-            Захват контекста
+            <span data-i18n="contextCapture">Захват контекста</span>
             <select id="contextCaptureMode">
-              <option value="words">Слова слева/справа</option>
-              <option value="sentence">До пунктуации</option>
+              <option value="words" data-i18n="wordsAround">Слова слева/справа</option>
+              <option value="sentence" data-i18n="untilPunctuation">До пунктуации</option>
             </select>
           </label>
         </div>
         <label>
-          Слов с каждой стороны: <span id="contextWordsValue">8</span>
+          <span><span data-i18n="wordsAround">Слова слева/справа</span>: <span id="contextWordsValue">8</span></span>
           <input id="contextWordsEachSide" type="range" min="0" max="40" step="1">
         </label>
         <label>
-          Target language
+          <span data-i18n="targetLanguage">Язык карточки</span>
           <input id="language" type="text" placeholder="auto, English, German..." autocomplete="off">
         </label>
       </section>
 
+      <section>
+        <h2 data-i18n="siteAccess">Доступ на сайтах</h2>
+        <div class="mode-switch">
+          <label><input name="siteAccessMode" type="radio" value="blocklist"><span data-i18n="blocklist">Работать везде, кроме списка</span></label>
+          <label><input name="siteAccessMode" type="radio" value="allowlist"><span data-i18n="allowlist">Работать только на сайтах из списка</span></label>
+        </div>
+        <label>
+          <span data-i18n="siteList">Сайты, по одному на строку</span>
+          <textarea id="siteRules" class="site-rules" spellcheck="false" placeholder="example.com&#10;*.work.example.org&#10;news.example.net/private/*"></textarea>
+        </label>
+        <p class="hint" data-i18n="siteHint">Поддерживаются example.com, *.example.com и example.com/path/*. Поддомены учитываются автоматически.</p>
+      </section>
     </main>
+    <script src="providers.js"></script>
+    <script src="site-access.js"></script>
+    <script src="i18n.js"></script>
     <script src="api-vault.js"></script>
     <script src="options.js"></script>
   </body>

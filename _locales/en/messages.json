@@ -1,0 +1,5 @@
+{
+  "extensionName": { "message": "Anki AI Card Gen" },
+  "extensionDescription": { "message": "Create Anki cards from selected words in Chrome or Microsoft Edge with an LLM and AnkiConnect." },
+  "commandCreateCard": { "message": "Create an Anki card from the current selection" }
+}

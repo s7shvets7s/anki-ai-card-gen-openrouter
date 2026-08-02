@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
-  "name": "Anki AI Card Gen",
+  "name": "__MSG_extensionName__",
   "short_name": "Anki AI",
-  "description": "Generate Anki cards from selected words in Chrome or Microsoft Edge with an LLM and AnkiConnect.",
-  "version": "0.3.0",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "en",
+  "version": "0.4.0",
   "minimum_chrome_version": "114",
   "permissions": [
     "contextMenus",
@@ -26,6 +27,7 @@
         "<all_urls>"
       ],
       "js": [
+        "src/site-access.js",
         "src/content-script.js"
       ],
       "run_at": "document_idle"
@@ -41,7 +43,7 @@
       "suggested_key": {
         "default": "Alt+Shift+A"
       },
-      "description": "Create an Anki card from the current selection"
+      "description": "__MSG_commandCreateCard__"
     }
   }
 }

@@ -55,17 +55,30 @@
         font-size: 13px;
         line-height: 1.4;
       }
+      #siteState {
+        margin-bottom: 12px;
+        padding: 8px 10px;
+        border-left: 3px solid #1d5b4f;
+        background: #f1eee6;
+        font-size: 12px;
+      }
+      #siteState[data-blocked="true"] { border-left-color: #8a2f3a; }
+      button:disabled { cursor: not-allowed; opacity: .55; }
     </style>
   </head>
   <body>
     <h1>Anki AI Card Gen</h1>
-    <p>Выделите ровно одно слово. Предложение рядом будет добавлено как контекст.</p>
+    <p data-i18n="popupIntro">Выделите ровно одно слово. Текст рядом будет добавлен как контекст.</p>
+    <div id="siteState"></div>
     <div class="stack">
-      <button id="createButton" type="button">Создать из выделения</button>
-      <button id="readerButton" type="button" class="reader">Открыть PDF Reader</button>
-      <button id="optionsButton" type="button" class="secondary">Открыть настройки</button>
+      <button id="createButton" type="button" data-i18n="createSelection">Создать из выделения</button>
+      <button id="readerButton" type="button" class="reader" data-i18n="openReader">Открыть PDF Reader</button>
+      <button id="siteToggleButton" type="button" class="secondary"></button>
+      <button id="optionsButton" type="button" class="secondary" data-i18n="openSettings">Открыть настройки</button>
     </div>
     <div id="status" role="status"></div>
+    <script src="site-access.js"></script>
+    <script src="i18n.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
